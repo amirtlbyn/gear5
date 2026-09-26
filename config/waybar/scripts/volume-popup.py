@@ -2,7 +2,7 @@
 """
 Sound popup for Waybar in the Everforest style.
 
-  volume-popup.py [everforest|everforest-light]
+  volume-popup.py [THEME]
 
 - Opens under the mouse, just below the bar; click anywhere outside or press Esc to close.
 - Clicking the bar icon again also closes it.
@@ -56,26 +56,18 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import palette  # noqa: E402
+
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 else "everforest"
+THEME = sys.argv[1] if len(sys.argv) > 1 else palette.current()
 WIDTH = 440
 MAX_VOLUME = 100  # same limit as the volume keys
 MAX_PLAYERS = 8
 CARD_HEIGHT = 230  # every Now Playing card is this tall, whatever it shows
 ART_CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "volume-popup")
 
-PALETTES = {
-    "everforest": dict(
-        bg_dim="#232a2e", bg0="#2d353b", bg1="#343f44", bg2="#3d484d", bg3="#475258", fg="#d3c6aa",
-        grey="#859289", green="#a7c080", aqua="#83c092", red="#e67e80", edge="#1e2326",
-        on_accent="#232a2e", shadow="rgba(0,0,0,0.55)"),
-    "everforest-light": dict(
-        bg_dim="#f2efdf", bg0="#fdf6e3", bg1="#f4f0d9", bg2="#efebd4", bg3="#e6e2cc", fg="#5c6a72",
-        grey="#939f91", green="#8da101", aqua="#35a77c", red="#f85552", edge="#d8d3ba",
-        on_accent="#fdf6e3", shadow="rgba(60,60,40,0.25)"),
-}
-P = PALETTES.get(THEME, PALETTES["everforest"])
+P = palette.load(THEME)
 
 # where the music comes from: label (None = the player's own name), icon, colour
 BRANDS = {

@@ -4,7 +4,6 @@
 #   ./install.sh                 install packages + fonts + configs (asks before changing anything)
 #   ./install.sh --yes           don't ask
 #   ./install.sh --configs-only  only copy the configs (you install the packages yourself)
-#   ./install.sh --theme day     start with the light theme (default: night)
 #   ./install.sh --dry-run       show what would happen, change nothing
 #
 # Your current ~/.config/{hypr,waybar,swaync} are moved to a dated backup folder first.
@@ -15,19 +14,17 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}"
 FONTS="${XDG_DATA_HOME:-$HOME/.local/share}/fonts"
 
-YES=0 DRY=0 PACKAGES=1 THEME=night
+YES=0 DRY=0 PACKAGES=1
 while (($#)); do
   case "$1" in
     -y|--yes) YES=1 ;;
     --dry-run) DRY=1 ;;
     --configs-only) PACKAGES=0 ;;
-    --theme) THEME="${2:-night}"; shift ;;
-    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "Unknown option: $1 (see --help)" >&2; exit 1 ;;
   esac
   shift
 done
-[[ "$THEME" == day || "$THEME" == night ]] || { echo "--theme is day or night" >&2; exit 1; }
 
 say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!!\033[0m %s\n' "$*" >&2; }
@@ -160,7 +157,6 @@ install_configs() {
   run cp "$HERE/config/systemd/user/hyprland-session.target" "$CONFIG/systemd/user/"
   if ((!DRY)); then
     sed -i "s|@HOME@|$HOME|g" "$CONFIG/hypr/hyprlock.conf"
-    sed -i "s|^local themeName = \".*\"|local themeName = \"summer-$THEME\"|" "$CONFIG/hypr/hyprland.lua"
     chmod +x "$CONFIG"/hypr/scripts/*.sh "$CONFIG"/waybar/scripts/*.sh "$CONFIG"/waybar/scripts/*.py
   fi
 
@@ -169,10 +165,13 @@ install_configs() {
   say "Fetching wallpapers from the original rice ($UPSTREAM)"
   local raw="${UPSTREAM/github.com/raw.githubusercontent.com}/main" f
   run mkdir -p "$CONFIG/hypr/wallpapers"
-  for f in summer-day.png summer-night.png; do
+  for f in summer-night.png; do
     run curl -fsSL "$raw/wallpapers/$f" -o "$CONFIG/hypr/wallpapers/$f" ||
       warn "Couldn't download $f; put it in ~/.config/hypr/wallpapers/ yourself."
   done
+  # the bar, popups, borders and lock screen read files generated from the theme
+  # (after the download: the generated files point at the wallpaper if it's there)
+  ((DRY)) || "$CONFIG/waybar/scripts/theme.py" write summer-night || warn "Couldn't write the theme files; run ~/.config/waybar/scripts/theme.py apply summer-night later."
   if [[ ! -e "$CONFIG/kitty/kitty.conf" ]]; then
     say "Adding the original rice's kitty colors (you had no kitty config)"
     run mkdir -p "$CONFIG/kitty/colors"
@@ -207,5 +206,5 @@ install_configs
 
 echo
 say "Done. Log out and pick \"Hyprland\" on the login screen."
-echo "    SUPER+D search · SUPER+Return terminal · SUPER+C calculator · SUPER+V clipboard · SUPER+. emoji"
+echo "    SUPER+D search · SUPER+I settings & themes · SUPER+Return terminal · SUPER+C calculator · SUPER+V clipboard · SUPER+. emoji"
 echo "    Screens: add your layout to ~/.config/hypr/hyprland.lua (see the Monitors section)."

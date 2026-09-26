@@ -11,7 +11,7 @@
     "spacing": 15,
     "modules-left": ["custom/launcher", "custom/clock", "custom/dates"],
     "modules-center": ["group/desks"],
-    "modules-right": ["custom/idle", "custom/lang", "pulseaudio", "network", "battery", "custom/powermenu"],
-    "include": ["~/.config/waybar/everforest-light/modules.jsonc"]
+    "modules-right": ["custom/minimized", "custom/idle", "custom/lang", "pulseaudio", "network", "battery", "custom/powermenu"],
+    "include": ["~/.config/waybar/bar/modules.jsonc"]
   }
 ]

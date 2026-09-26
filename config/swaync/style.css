@@ -1,13 +1,5 @@
-/* SwayNC — Everforest, same raised "3D" boxes as the bar */
-@define-color bg0   #2d353b;
-@define-color bg1   #343f44;
-@define-color bg3   #475258;
-@define-color fg    #d3c6aa;
-@define-color grey  #859289;
-@define-color green #a7c080;
-@define-color red   #e67e80;
-@define-color blue  #7fbbb3;
-@define-color edge  #161a1d;
+/* SwayNC — theme colors, same raised "3D" boxes as the bar */
+@import url("../waybar/colors/current.css");   /* the theme colors, written by theme.py */
 
 * {
   font-family: "JetBrainsMono Nerd Font", "Vazirmatn", sans-serif;
@@ -29,12 +21,12 @@
   color: @fg;
   border-radius: 10px;
   border: none;
-  border-bottom: 5px solid @edge;
+  border-bottom: 5px solid @edge_deep;
   padding: 10px 12px;
   box-shadow: none;
 }
 .notification.critical {
-  border-bottom-color: #951c1f;
+  border-bottom-color: @red_edge;
   background: @bg0;
   box-shadow: inset 4px 0 0 @red;
 }
@@ -56,7 +48,7 @@
 .notification-action {
   background: @bg1;
   border-radius: 8px;
-  border-bottom: 3px solid @edge;
+  border-bottom: 3px solid @edge_deep;
   margin: 4px;
 }
 
@@ -65,19 +57,19 @@
   color: @bg0;
   border-radius: 8px;
   border: none;
-  border-bottom: 3px solid #951c1f;
+  border-bottom: 3px solid @red_edge;
   min-width: 22px;
   min-height: 22px;
   margin: 6px;
 }
-.close-button:hover { background: #f08b8d; }
+.close-button:hover { background: @red_hover; }
 
 /* ---------- notification center (SUPER+N) ---------- */
 .control-center {
   background: @bg0;
   color: @fg;
   border-radius: 12px;
-  border-bottom: 6px solid @edge;
+  border-bottom: 6px solid @edge_deep;
   margin: 10px;
   padding: 6px;
 }
@@ -90,7 +82,7 @@
   color: @bg0;
   border: none;
   border-radius: 8px;
-  border-bottom: 3px solid #556a35;
+  border-bottom: 3px solid @green_edge;
   padding: 2px 10px;
 }
 .widget-dnd { color: @fg; margin: 8px 10px; }

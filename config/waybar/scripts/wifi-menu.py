@@ -2,7 +2,7 @@
 """
 Wi-Fi popup for Waybar in the Everforest "raised box" style.
 
-  wifi-menu.py [everforest|everforest-light]
+  wifi-menu.py [THEME]
 
 - Opens under the bar at the top right; click anywhere outside or press Esc to close.
 - Clicking the bar icon again also closes it.
@@ -44,21 +44,13 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import palette  # noqa: E402
+
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 else "everforest"
+THEME = sys.argv[1] if len(sys.argv) > 1 else palette.current()
 
-PALETTES = {
-    "everforest": dict(
-        bg0="#2d353b", bg1="#343f44", bg2="#3d484d", bg3="#475258", fg="#d3c6aa",
-        grey="#859289", green="#a7c080", red="#e67e80", edge="#161a1d",
-        green_edge="#556a35", red_edge="#951c1f"),
-    "everforest-light": dict(
-        bg0="#fdf6e3", bg1="#f4f0d9", bg2="#efebd4", bg3="#e6e2cc", fg="#5c6a72",
-        grey="#939f91", green="#8da101", red="#f85552", edge="#bdc3af",
-        green_edge="#5f6d00", red_edge="#b83c3a"),
-}
-P = PALETTES.get(THEME, PALETTES["everforest"])
+P = palette.load(THEME, edge="edge_deep")
 
 CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.wifi-menu { background: transparent; }

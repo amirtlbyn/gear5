@@ -1,4 +1,4 @@
-@import "../colors/everforest-light.css";
+@import "../colors/current.css";   /* written by scripts/theme.py */
 
 /* margin: top right bottom left */
 /* Spacing outside the element */
@@ -21,7 +21,7 @@ window#waybar {
   transition-duration: .5s;
 
   border-bottom-width: 5px;
-  border-bottom-color: #2e3538;
+  border-bottom-color: @bar_edge;
   border-bottom-style: solid;
 }
 
@@ -33,6 +33,7 @@ window#waybar {
 #workspaces,
 #custom-lang,
 #custom-idle,
+#custom-minimized,
 #pulseaudio,
 #network,
 #battery,
@@ -47,7 +48,7 @@ window#waybar {
 	border-radius: 10px;
 
   border-bottom-width: 5px;
-  border-bottom-color: @bg5;
+  border-bottom-color: @edge_deep;
   border-bottom-style: solid;
 }
 
@@ -65,14 +66,14 @@ window#waybar {
   margin-bottom: -5px;
 
   border-bottom-width: 5px;
-  border-bottom-color: #1c4a62;
+  border-bottom-color: @blue_edge;
   border-bottom-style: solid;
 }
 
 #custom-launcher {
   background-color: @green;
   color: @bg0;
-  border-bottom-color: #465000;
+  border-bottom-color: @green_edge;
 
   margin-left: 15px;
   padding-left: 20px;
@@ -82,7 +83,7 @@ window#waybar {
 #custom-powermenu {
   background-color: @red;
   color: @bg0;
-  border-bottom-color: #9e0906;
+  border-bottom-color: @red_edge;
 
   margin-right: 15px;
   padding-left: 20px;
@@ -95,7 +96,7 @@ window#waybar {
   margin-top: 7px;
   margin-bottom: 12px;
   border-radius: 10px;
-  border-bottom: 5px solid #161a1d;
+  border-bottom: 5px solid @edge_deep;
 }
 #pulseaudio-slider slider {
   min-height: 14px;
@@ -123,13 +124,14 @@ window#waybar {
 
 #custom-idle.awake { color: @yellow; }
 
+
 /* ===== clickable desks (replace hyprland/workspaces, which can't talk to the Lua config) ===== */
 #desks {
   background-color: @bg0;
   margin-top: 7px;
   margin-bottom: 12px;
   border-radius: 10px;
-  border-bottom: 5px solid #161a1d;
+  border-bottom: 5px solid @edge_deep;
   padding-left: 10px;
   padding-right: 2px;
 }
@@ -145,7 +147,9 @@ window#waybar {
   background-color: @blue;
   color: @bg0;
   margin-bottom: -5px;
-  border-bottom: 5px solid #366660;
+  border-bottom: 5px solid @blue_edge;
 }
 
 #custom-clock.other { color: @green; }   /* showing another timezone */
+
+#custom-minimized.has { color: @green; }   /* windows are minimized (SUPER+- brings one back) */

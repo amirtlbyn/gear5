@@ -3,7 +3,7 @@
 Search everything (SUPER+D), Everforest style — like Spotlight on macOS or the
 Activities search on Ubuntu.
 
-  launcher.py [everforest|everforest-light] [--hidden]
+  launcher.py [THEME] [--hidden]
 
 One box finds:
 - Apps (the ones you open most come first), and open windows on any desk.
@@ -57,9 +57,12 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import browsers  # noqa: E402
+import palette  # noqa: E402
+
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "everforest"
+THEME = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else palette.current()
 WIDTH = 640
 LIST_H = 470
 TERMINAL = "kitty"
@@ -74,17 +77,7 @@ LIMITS = dict(apps=6, windows=4, actions=4, files=8, folders=4, recent=6, most_u
 SKIP_DIRS = ("/.", "/node_modules/", "/__pycache__/", "/site-packages/", "/venv/", "/.venv/",
              "/snap/", "/go/pkg/", "/target/debug/", "/target/release/")
 
-PALETTES = {
-    "everforest": dict(
-        bg0="#2d353b", bg1="#343f44", bg2="#3d484d", bg3="#475258", fg="#d3c6aa",
-        grey="#859289", green="#a7c080", aqua="#83c092", yellow="#dbbc7f", red="#e67e80",
-        edge="#1e2326", on_accent="#232a2e", shadow="rgba(0,0,0,0.55)"),
-    "everforest-light": dict(
-        bg0="#fdf6e3", bg1="#f4f0d9", bg2="#efebd4", bg3="#e6e2cc", fg="#5c6a72",
-        grey="#939f91", green="#8da101", aqua="#35a77c", yellow="#dfa000", red="#f85552",
-        edge="#d8d3ba", on_accent="#fdf6e3", shadow="rgba(60,60,40,0.25)"),
-}
-P = PALETTES.get(THEME, PALETTES["everforest"])
+P = palette.load(THEME)
 
 CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.launcher { background: transparent; }
@@ -308,6 +301,10 @@ def hypr(lua):
     return lambda: spawn(["hyprctl", "dispatch", lua])
 
 
+def hypr_eval(lua):
+    return lambda: spawn(["hyprctl", "eval", lua])
+
+
 def sh(cmd):
     return lambda: spawn(["sh", "-c", cmd])
 
@@ -350,12 +347,76 @@ def action_items():
     return out
 
 
+def launch_action(info, action):
+    """An app's own desktop action (e.g. Zen's "New Blank Window")."""
+    ctx = Gio.AppLaunchContext()
+    env = child_env()
+    for var in ("LD_PRELOAD", "LAUNCHER_PRELOADED"):
+        if var in env:
+            ctx.setenv(var, env[var])
+        else:
+            ctx.unsetenv(var)
+    try:
+        info.launch_action(action, ctx)
+    except GLib.Error:
+        pass
+
+
+def app_action_item(app, key, title, run):
+    it = Item(key, title, app.title, app.info.get_icon(), "Action", run)
+    it.name = f"{title} {app.title}".lower()
+    it.name_words = words(it.name)
+    it.extra, it.extra_words = app.extra, app.extra_words
+    return it
+
+
+def app_action_items(apps):
+    """Every app's desktop actions, plus New Tab (and any missing New Window /
+    New Private Window) for each web browser."""
+    out = []
+    for a in apps:
+        info = a.info
+        own, covered = [], set()
+        for act in info.list_actions() or []:
+            covered.add(browsers.ACTION_KINDS.get(act))
+            own.append(app_action_item(a, f"appaction:{a.id}:{act}", info.get_action_name(act),
+                                       lambda i=info, n=act: launch_action(i, n)))
+        fam = browsers.family(a.id, info.get_commandline() or "")
+        added = []
+        for kind in ("tab", "window", "private") if fam else ():
+            argv = browsers.command(info.get_commandline() or "", fam, kind)
+            if argv and kind not in covered:
+                added.append(app_action_item(a, f"appaction:{a.id}:{kind}", browsers.KINDS[fam][kind][0],
+                                             lambda v=argv: spawn(v)))
+        out += added + own
+    return out
+
+
 def read_windows():
     try:
         clients = json.loads(run(["hyprctl", "-j", "clients"]) or "[]")
     except ValueError:
         return []
     return [c for c in clients if c.get("mapped", True) and c.get("title")]
+
+
+MINIMIZED = "special:minimized"
+MINIMIZED_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "hypr-minimized")
+
+
+def is_minimized(c):
+    return (c.get("workspace") or {}).get("name") == MINIMIZED
+
+
+def minimized_windows(windows):
+    """The minimized windows, the last one hidden first (hyprland.lua keeps the order)."""
+    try:
+        with open(MINIMIZED_FILE) as f:
+            order = [line.strip() for line in f if line.strip()]
+    except OSError:
+        order = []
+    rank = {addr: i for i, addr in enumerate(order)}
+    return sorted((c for c in windows if is_minimized(c)), key=lambda c: -rank.get(c.get("address"), -1))
 
 
 # ---- calculator (same idea as calculator.py) -------------------------------
@@ -493,8 +554,8 @@ def recent_files(limit=LIMITS["recent"]):
 # UI
 # ---------------------------------------------------------------------------
 class Launcher(Gtk.Application):
-    SCOPES = [("all", "All"), ("apps", "Apps"), ("windows", "Windows"), ("files", "Files"),
-              ("actions", "Actions")]
+    SCOPES = [("all", "All"), ("apps", "Apps"), ("windows", "Windows"), ("minimized", "Minimized"),
+              ("files", "Files"), ("actions", "Actions")]
 
     def __init__(self):
         super().__init__(application_id="io.local.launcher")
@@ -523,13 +584,17 @@ class Launcher(Gtk.Application):
         self.reload_apps()
         self.monitor = Gio.AppInfoMonitor.get()       # apps installed or removed
         self.monitor.connect("changed", lambda *_: self.reload_apps())
+        # popup.sh launcher --minimized: open on the list of minimized windows
+        action = Gio.SimpleAction.new("show-minimized", None)
+        action.connect("activate", lambda *_: self.show_popup("minimized"))
+        self.add_action(action)
         if "--hidden" not in sys.argv:
-            self.show_popup()
+            self.show_popup("minimized" if "--minimized" in sys.argv else "all")
 
-    def show_popup(self):
+    def show_popup(self, scope="all"):
         self.search.set_text("")
         self.text, self.query = "", []
-        self.set_scope("all", update=False)
+        self.set_scope(scope, update=False)
         self.windows = read_windows()
         self.update()
         self.win.present()
@@ -617,6 +682,7 @@ class Launcher(Gtk.Application):
 
     def reload_apps(self):
         self.apps = load_apps()
+        self.actions = action_items() + app_action_items(self.apps)
         self.by_class = {}
         for a in self.apps:
             for k in (a.wm_class, a.id.removesuffix(".desktop").lower(),
@@ -659,8 +725,14 @@ class Launcher(Gtk.Application):
         app = self.by_class.get(cls.lower())
         icon = app.info.get_icon() if app else Gio.ThemedIcon.new(cls.lower() or "window")
         desk = (c.get("workspace") or {}).get("id", 0)
-        where = f"desk {(desk - 1) % 10 + 1}" if desk >= 1 else "hidden"
         addr = c.get("address", "")
+        if not re.fullmatch(r"0x[0-9a-f]+", addr):      # it goes into Lua code below
+            addr = ""
+        if is_minimized(c):
+            # comes back onto the desk you're on
+            return Item("win:" + addr, title, f"{app.title if app else cls} · minimized", icon,
+                        "Window", hypr_eval(f'restoreMinimized("{addr}")'))
+        where = f"desk {(desk - 1) % 10 + 1}" if desk >= 1 else "hidden"
         return Item("win:" + addr, title, f"{app.title if app else cls} · {where}", icon,
                     "Window", hypr(f'hl.dsp.focus({{ window = "address:{addr}" }})'))
 
@@ -678,6 +750,10 @@ class Launcher(Gtk.Application):
                 self.sections = [("ALL APPS", [a.item() for a in ranked])]
             elif scope == "windows":
                 self.sections = [("OPEN WINDOWS", [self.window_item(c) for c in self.windows])]
+            elif scope == "minimized":
+                mins = [self.window_item(c) for c in minimized_windows(self.windows)]
+                self.sections = [("MINIMIZED  ·  newest first", mins) if mins else
+                                 ("NOTHING MINIMIZED  ·  SUPER+A hides a window", [])]
             elif scope == "files":
                 self.sections = [("RECENT FILES", recent_files(self.limit("recent")))]
             elif scope == "actions":
@@ -697,7 +773,7 @@ class Launcher(Gtk.Application):
         apps = [a.item() for *_k, a in sorted(apps, key=lambda x: x[:3])][:self.limit("apps")]
 
         wins = []
-        for c in self.windows:
+        for c in minimized_windows(self.windows) if scope == "minimized" else self.windows:
             title, cls = c.get("title", ""), c.get("class", "")
             s = score(q, title.lower(), words(title), cls.lower(), words(cls))
             if s is not None:
@@ -720,7 +796,8 @@ class Launcher(Gtk.Application):
                          lambda: spawn(["xdg-open", WEB_SEARCH + urllib.parse.quote(text)])))
 
         pick = dict(all=[("APPS", apps), ("WINDOWS", wins), ("ACTIONS", acts)], apps=[("APPS", apps)],
-                    windows=[("WINDOWS", wins)], actions=[("ACTIONS", acts)], files=[])[scope]
+                    windows=[("WINDOWS", wins)], minimized=[("MINIMIZED", wins)], actions=[("ACTIONS", acts)],
+                    files=[])[scope]
         # the web / command row only in "All"; the list always ends with it (maybe empty)
         self.sections = pick + [("", tail if scope == "all" else [])]
         self.render()
@@ -884,7 +961,7 @@ class Launcher(Gtk.Application):
             else:
                 self.win.close()
             return True
-        # Tab / Shift+Tab: next / previous tab; Alt+1..5: straight to one
+        # Tab / Shift+Tab: next / previous tab; Alt+1..6: straight to one
         if keyval in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
             keys = [k for k, _ in self.SCOPES]
             step = -1 if keyval == Gdk.KEY_ISO_Left_Tab or state & Gdk.ModifierType.SHIFT_MASK else 1

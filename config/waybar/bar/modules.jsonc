@@ -86,7 +86,7 @@
       "exec": "~/.config/waybar/scripts/distro-icon.sh",
       "interval": "once",
       "format": "{}",
-      "on-click": "~/.config/waybar/scripts/popup.sh launcher everforest-light",
+      "on-click": "~/.config/waybar/scripts/popup.sh launcher",
       "tooltip": false
     },
 
@@ -139,7 +139,7 @@
           "car": "",
           "default": ["", "", ""]
       },
-      "on-click": "~/.config/waybar/scripts/popup.sh volume-popup everforest-light",
+      "on-click": "~/.config/waybar/scripts/popup.sh volume-popup",
       "on-click-right": "pavucontrol",
     "on-click-middle": "pactl set-sink-mute @DEFAULT_SINK@ toggle",
   },
@@ -148,7 +148,7 @@
       "format-wifi": " {signalStrength}%",
       "format-ethernet": " {signalStrength}%",
       "format-disconnected": " --",
-      "on-click": "~/.config/waybar/scripts/popup.sh wifi-menu everforest-light",
+      "on-click": "~/.config/waybar/scripts/popup.sh wifi-menu",
       "format-disabled": " off",
       "tooltip-format-wifi": "{essid}  ({signalStrength}%)"
 },
@@ -167,7 +167,7 @@
     "format-critical": "{icon} {capacity}%",
     "format-charging": " {capacity}%",
     "format-plugged": " {capacity}%",
-    "on-click": "~/.config/waybar/scripts/popup.sh control-center everforest-light",
+    "on-click": "~/.config/waybar/scripts/popup.sh control-center",
     "format-full": " 100%",
     "format-icons": ["", "", "", "", "", "", "", "", "", ""]
 },
@@ -179,7 +179,7 @@
 "custom/clock": {
     "exec": "~/.config/waybar/scripts/clock.sh",
     "return-type": "json",
-    "on-click": "~/.config/waybar/scripts/popup.sh worldclock everforest-light",
+    "on-click": "~/.config/waybar/scripts/popup.sh worldclock",
     "on-scroll-up": "~/.config/waybar/scripts/clock.sh prev",
     "on-scroll-down": "~/.config/waybar/scripts/clock.sh next"
 },
@@ -191,16 +191,24 @@
   "tooltip": false
 },
 
+"custom/minimized": {
+  "exec": "~/.config/waybar/scripts/minimized.sh",
+  "return-type": "json",
+  "interval": "once",
+  "signal": 10,
+  "on-click": "~/.config/waybar/scripts/popup.sh launcher --minimized"
+},
+
 "custom/idle": {
   "exec": "~/.config/hypr/scripts/idle.sh status",
   "return-type": "json",
   "interval": 30,
   "signal": 9,
-  "on-click": "~/.config/waybar/scripts/popup.sh power-popup everforest-light"
+  "on-click": "~/.config/waybar/scripts/popup.sh power-popup"
 },
 
 "custom/dates": {
-  "on-click": "~/.config/waybar/scripts/popup.sh calendar-popup everforest-light",
+  "on-click": "~/.config/waybar/scripts/popup.sh calendar-popup",
   "exec": "~/.config/waybar/scripts/dates.py",
   "return-type": "json",
   "interval": 300,
@@ -221,7 +229,7 @@
 
 "custom/powermenu": {
     "format": "",
-    "on-click": "~/.config/waybar/scripts/popup.sh power-popup everforest-light",
+    "on-click": "~/.config/waybar/scripts/popup.sh power-popup",
     "tooltip": false
   }
 }

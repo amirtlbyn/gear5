@@ -1,9 +1,14 @@
 -- ~/.config/hypr/hyprland.lua — summer-day-and-night, Lua version (Hyprland 0.56+)
 -- Saving this file reloads it. Wiki: https://wiki.hypr.land/configuring/
 
--- ===== Pick your theme: "summer-night" or "summer-day" =====
-local themeName = "summer-night"
-local theme     = require("themes." .. themeName)
+-- ===== Theme: pick one in Settings (SUPER+I), or run ~/.config/waybar/scripts/theme.py =====
+-- themes/current.lua is written by theme.py; without it, the Summer night colors.
+local okTheme, theme = pcall(require, "themes.current")
+if not okTheme or type(theme) ~= "table" then
+    theme = { id = "summer-night", gtk = "Adwaita:dark", fg = "rgb(d3c6aa)", bg5 = "rgb(56635f)",
+              shadow = "rgb(7d6a40)", shadow_inactive = "rgb(2b312f)", bg0 = "#2d353b", wallpaper = "" }
+end
+package.loaded["themes.current"] = nil      -- a reload after a switch reads the new file
 
 local terminal    = "kitty"
 local fileManager = "nemo"
@@ -30,10 +35,17 @@ hl.env("GTK_THEME", theme.gtk)
 
 ---------------- Autostart ----------------
 local function startBarAndWallpaper()
-    hl.exec_cmd("pkill swaybg; swaybg -i ~/.config/hypr/wallpapers/" .. themeName .. ".png -m fill")
-    hl.exec_cmd("pkill waybar; waybar -c ~/.config/waybar/" .. theme.colors .. "/config -s ~/.config/waybar/" .. theme.colors .. "/style.css")
+    -- no wallpaper for this theme: fill the desktop with its background color
+    if theme.wallpaper ~= "" then
+        local path = theme.wallpaper:gsub("'", "'\\''")      -- a ' in the path stays part of it
+        hl.exec_cmd("pkill swaybg; swaybg -i '" .. path .. "' -m fill")
+    else
+        hl.exec_cmd("pkill swaybg; swaybg -c '" .. theme.bg0 .. "'")
+    end
+    -- bar.sh restarts the bar whenever it quits (screens coming and going can do that)
+    hl.exec_cmd("~/.config/hypr/scripts/bar.sh")
     -- sound + quick settings popups wait hidden in the background, so they open instantly
-    hl.exec_cmd("~/.config/waybar/scripts/popup.sh --restart " .. theme.colors)
+    hl.exec_cmd("~/.config/waybar/scripts/popup.sh --restart " .. theme.id)
 end
 
 hl.on("hyprland.start", function()
@@ -46,7 +58,11 @@ hl.on("hyprland.start", function()
     startBarAndWallpaper()
 end)
 -- restart bar + wallpaper when you change the theme and save
-hl.on("config.reloaded", startBarAndWallpaper)
+hl.on("config.reloaded", function()
+    startBarAndWallpaper()
+    -- the monitor lines above just ran again: put back the layout saved for these screens
+    hl.exec_cmd("~/.config/waybar/scripts/displays.py --auto")
+end)
 
 ---------------- Look and feel ----------------
 hl.config({
@@ -118,11 +134,17 @@ hl.config({
 })
 hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 
+-- your choices from Settings (SUPER+I) win over the values above; the file is
+-- written by waybar/scripts/settings_store.py, and a missing file changes nothing
+pcall(require, "user-settings")
+package.loaded["user-settings"] = nil       -- a reload after a change reads the new file
+
 ---------------- Window rules ----------------
 hl.window_rule({ name = "pavucontrol", match = { class = "^(org.pulseaudio.pavucontrol|pavucontrol)$" }, float = true, center = true, size = "600 800" })
 hl.window_rule({ name = "blueman",     match = { class = "^(blueman-manager)$" }, float = true })
 hl.window_rule({ name = "calculator",  match = { class = "^(org.gnome.Calculator)$" }, float = true, size = "490 600" })
 hl.window_rule({ name = "viewers",     match = { class = "^(eog|org.gnome.eog|vlc|imv)$" }, float = true, center = true })
+hl.window_rule({ name = "settings",    match = { class = "^(io.local.settings)$" }, float = true, center = true, size = "880 660" })
 hl.window_rule({ name = "file-dialogs",match = { title = "^(Confirm to replace files|File Operation Progress)$" }, float = true })
 
 ---------------- Keybinds ----------------
@@ -133,11 +155,12 @@ local exec = hl.dsp.exec_cmd
 bind(mainMod .. " + Return", exec(terminal))
 bind(mainMod .. " + E",      exec(fileManager))
 -- launcher: stays running hidden, opens instantly; most-used apps first
-bind(mainMod .. " + D",      exec("~/.config/waybar/scripts/popup.sh launcher " .. theme.colors))
-bind(mainMod .. " + B",      exec("~/.config/waybar/scripts/popup.sh power-popup " .. theme.colors))
-bind(mainMod .. " + C",      exec("~/.config/waybar/scripts/popup.sh calculator " .. theme.colors))
-bind(mainMod .. " + V",      exec("~/.config/waybar/scripts/popup.sh clipboard " .. theme.colors))
-bind(mainMod .. " + period", exec("~/.config/waybar/scripts/popup.sh emoji-picker " .. theme.colors))
+bind(mainMod .. " + D",      exec("~/.config/waybar/scripts/popup.sh launcher"))
+bind(mainMod .. " + B",      exec("~/.config/waybar/scripts/popup.sh power-popup"))
+bind(mainMod .. " + C",      exec("~/.config/waybar/scripts/popup.sh calculator"))
+bind(mainMod .. " + V",      exec("~/.config/waybar/scripts/popup.sh clipboard"))
+bind(mainMod .. " + period", exec("~/.config/waybar/scripts/popup.sh emoji-picker"))
+bind(mainMod .. " + I",      exec("~/.config/waybar/scripts/settings.py"))
 
 -- session
 bind(mainMod .. " + M",         hl.dsp.exit())
@@ -153,16 +176,86 @@ bind(mainMod .. " + Q",             hl.dsp.window.close())
 bind(mainMod .. " + F",             hl.dsp.window.fullscreen())
 bind(mainMod .. " + SHIFT + F",     hl.dsp.window.fullscreen({ mode = "maximized" }))
 bind(mainMod .. " + SHIFT + SPACE", hl.dsp.window.float({ action = "toggle" }))
-bind(mainMod .. " + P",             hl.dsp.window.pseudo())
+bind(mainMod .. " + SHIFT + P",     hl.dsp.window.pseudo())
+-- displays: arrange, mirror, resolution, scale, rotation; remembered per set of screens
+bind(mainMod .. " + P",             exec("~/.config/waybar/scripts/popup.sh displays"))
 bind(mainMod .. " + J",             hl.dsp.layout("togglesplit"))
 bind(mainMod .. " + G",             hl.dsp.group.toggle())
 bind(mainMod .. " + Tab",           hl.dsp.group.next())
 bind("ALT + Tab",                   hl.dsp.focus({ last = true }))
 bind(mainMod .. " + H",             exec("sh ~/.config/hypr/scripts/toggle-gaps.sh"))
 
--- "minimize" = send to hidden scratchpad; SUPER+minus shows/hides it
-bind(mainMod .. " + A",     hl.dsp.window.move({ workspace = "special:magic", follow = false }))
-bind(mainMod .. " + minus", hl.dsp.workspace.toggle_special("magic"))
+-- minimize: SUPER+A hides the window; SUPER+minus brings back the last one onto the
+-- desk you're on (press again for the one before); SUPER+SHIFT+minus lists them all.
+-- Hidden windows live on a special workspace; the file keeps the order they were hidden.
+local MINIMIZED = "special:minimized"
+local MINIMIZED_FILE = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/hypr-minimized"
+
+local function isMinimized(w) return w ~= nil and w.workspace ~= nil and w.workspace.name == MINIMIZED end
+
+-- the hidden windows, oldest first, and address -> window for every window
+local function minimizedStack()
+    local byAddr, order, seen = {}, {}, {}
+    for _, w in ipairs(hl.get_windows()) do byAddr[w.address] = w end
+    local f = io.open(MINIMIZED_FILE, "r")
+    if f then
+        for addr in f:lines() do
+            if isMinimized(byAddr[addr]) and not seen[addr] then
+                order[#order + 1], seen[addr] = addr, true
+            end
+        end
+        f:close()
+    end
+    -- hidden some other way (moved there by hand): oldest
+    for _, w in ipairs(hl.get_windows()) do
+        if isMinimized(w) and not seen[w.address] then
+            table.insert(order, 1, w.address)
+            seen[w.address] = true
+        end
+    end
+    return order, byAddr
+end
+
+local function saveMinimized(order)
+    -- write a copy, then swap it in: the launcher never reads half a list
+    local f = io.open(MINIMIZED_FILE .. ".tmp", "w")
+    if not f then return end
+    for _, addr in ipairs(order) do f:write(addr, "\n") end
+    f:close()
+    os.rename(MINIMIZED_FILE .. ".tmp", MINIMIZED_FILE)
+end
+
+-- global, so scripts can call it too: `hyprctl eval 'minimizeActive()'`
+function minimizeActive()
+    local w = hl.get_active_window()
+    if not w or isMinimized(w) then return end
+    local order = minimizedStack()
+    order[#order + 1] = w.address
+    saveMinimized(order)
+    hl.dispatch(hl.dsp.window.move({ workspace = MINIMIZED, follow = false, window = w }))
+end
+
+-- bring back a hidden window (the last one hidden when no address is given) onto
+-- the desk you're on; the launcher's list calls `hyprctl eval 'restoreMinimized("0x...")'`
+function restoreMinimized(addr)
+    local order, byAddr = minimizedStack()
+    local pick = #order
+    if addr then
+        pick = nil
+        for i, a in ipairs(order) do if a == addr then pick = i end end
+    end
+    if not pick or pick == 0 then return end
+    local w = byAddr[table.remove(order, pick)]
+    saveMinimized(order)
+    local ws = hl.get_active_workspace()
+    local id = (ws and ws.id >= 1) and ws.id or 1
+    hl.dispatch(hl.dsp.window.move({ workspace = id, follow = false, window = w }))
+    hl.dispatch(hl.dsp.focus({ window = w }))
+end
+
+bind(mainMod .. " + A",             function() minimizeActive() end)
+bind(mainMod .. " + minus",         function() restoreMinimized() end)
+bind(mainMod .. " + SHIFT + minus", exec("~/.config/waybar/scripts/popup.sh launcher --minimized"))
 
 -- focus / move with arrows
 for _, dir in ipairs({ "left", "right" }) do
@@ -355,6 +448,16 @@ local function settle()
     hl.exec_cmd("~/.config/waybar/scripts/dim-screen.py --restore")
 end
 local settleTimer
+-- a set of screens seen before gets its saved layout back (SUPER+P saves it)
+local displaysTimer
+local function displaysSoon()
+    if displaysTimer then displaysTimer:set_enabled(false) end
+    displaysTimer = hl.timer(function() hl.exec_cmd("~/.config/waybar/scripts/displays.py --auto") end,
+                             { timeout = 700, type = "oneshot" })
+end
+hl.on("monitor.added", displaysSoon)
+hl.on("monitor.removed", displaysSoon)
+
 local function settleSoon()
     if settleTimer then settleTimer:set_enabled(false) end
     settleTimer = hl.timer(settle, { timeout = 3000, type = "oneshot" })
@@ -374,7 +477,8 @@ hl.on("monitor.removed", settleSoon)
 -- the bar's desk buttons call these (`hyprctl eval 'desk(3)'`); waybar's own
 -- workspace module can't, it only speaks the old hyprctl dispatch syntax
 function desk(n) showDesk(n) end
-local function refreshBar() hl.exec_cmd("pkill -RTMIN+8 waybar") end
+-- RTMIN+8: the desk buttons, RTMIN+10: the minimized count
+local function refreshBar() hl.exec_cmd("pkill -RTMIN+8 waybar; pkill -RTMIN+10 waybar") end
 for _, ev in ipairs({ "workspace.active", "window.open", "window.close", "window.move_to_workspace" }) do
     hl.on(ev, refreshBar)
 end

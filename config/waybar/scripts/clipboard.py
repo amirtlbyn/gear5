@@ -2,7 +2,7 @@
 """
 Clipboard history (SUPER+V), Everforest style, on top of cliphist.
 
-  clipboard.py [everforest|everforest-light] [--hidden]
+  clipboard.py [THEME] [--hidden]
 
 - Type to search; filter by text, links, code, images or pinned (Tab / Shift+Tab
   or Alt+1..6 switch the filter).
@@ -47,28 +47,18 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import palette  # noqa: E402
+
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "everforest"
+THEME = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else palette.current()
 WIDTH = 540
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "clipboard-popup")
 PINS = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "clipboard-pins.json")
 PIN_IMAGES = os.path.join(os.path.dirname(PINS), "clipboard-pins")   # pinned pictures
 TERMINALS = ("kitty", "ghostty", "foot", "alacritty", "wezterm", "ptyxis", "terminal", "konsole", "tilix")
 
-PALETTES = {
-    "everforest": dict(
-        bg0="#2d353b", bg1="#343f44", bg2="#3d484d", bg3="#475258", fg="#d3c6aa",
-        grey="#859289", green="#a7c080", aqua="#83c092", blue="#7fbbb3", yellow="#dbbc7f",
-        orange="#e69875", purple="#d699b6", red="#e67e80", edge="#1e2326",
-        on_accent="#232a2e", shadow="rgba(0,0,0,0.55)"),
-    "everforest-light": dict(
-        bg0="#fdf6e3", bg1="#f4f0d9", bg2="#efebd4", bg3="#e6e2cc", fg="#5c6a72",
-        grey="#939f91", green="#8da101", aqua="#35a77c", blue="#3a94c5", yellow="#dfa000",
-        orange="#f57d26", purple="#df69ba", red="#f85552", edge="#d8d3ba",
-        on_accent="#fdf6e3", shadow="rgba(60,60,40,0.25)"),
-}
-P = PALETTES.get(THEME, PALETTES["everforest"])
+P = palette.load(THEME)
 
 CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.clipboard { background: transparent; }

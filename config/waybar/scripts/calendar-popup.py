@@ -2,7 +2,7 @@
 """
 Calendar popup for Waybar — Gregorian / Persian (Solar Hijri), Everforest style.
 
-  calendar-popup.py [everforest|everforest-light]
+  calendar-popup.py [THEME]
 
 Opens under the date box. Click outside or press Esc to close; clicking the
 date box again also closes it.
@@ -148,22 +148,15 @@ def main():
         from gi.repository import Gtk4LayerShell as LS
     except (ValueError, ImportError):
         LS = None
+    import palette
     import popup_backdrop
 
     try:
         LOCAL_ZONE = os.path.realpath("/etc/localtime").split("/zoneinfo/", 1)[1]
     except IndexError:
         LOCAL_ZONE = "UTC"
-    theme = sys.argv[1] if len(sys.argv) > 1 else "everforest"
-    palettes = {
-        "everforest": dict(bg0="#2d353b", bg1="#343f44", bg2="#3d484d", bg3="#475258",
-                           fg="#d3c6aa", grey="#859289", green="#a7c080", red="#e67e80",
-                           blue="#7fbbb3", edge="#161a1d", green_edge="#556a35"),
-        "everforest-light": dict(bg0="#fdf6e3", bg1="#f4f0d9", bg2="#efebd4", bg3="#e6e2cc",
-                                 fg="#5c6a72", grey="#939f91", green="#8da101", red="#f85552",
-                                 blue="#3a94c5", edge="#bdc3af", green_edge="#5f6d00"),
-    }
-    pal = palettes.get(theme, palettes["everforest"])
+    theme = sys.argv[1] if len(sys.argv) > 1 else palette.current()
+    pal = palette.load(theme, edge="edge_deep")
     css = "".join(f"@define-color {k} {v};\n" for k, v in pal.items()) + """
 window.cal-popup { background: transparent; }
 .backdrop { background: transparent; }

@@ -2,7 +2,7 @@
 """
 Quick settings popup for Waybar (opens from the battery box), Everforest style.
 
-  control-center.py [everforest|everforest-light]
+  control-center.py [THEME]
 
 - Battery: charge, time left, and power mode (saver / balanced / performance).
 - Tiles: Wi-Fi (opens the Wi-Fi menu), Bluetooth on/off, Do Not Disturb, Stay awake.
@@ -46,9 +46,11 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import palette  # noqa: E402
+
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 else "everforest"
+THEME = sys.argv[1] if len(sys.argv) > 1 else palette.current()
 WIDTH = 440
 HERE = os.path.dirname(os.path.abspath(__file__))
 IDLE = os.path.expanduser("~/.config/hypr/scripts/idle.sh")
@@ -56,17 +58,7 @@ IDLE_PREV = os.path.expanduser("~/.config/hypr/idle-state.before-awake")
 PP = ["org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles",
       "org.freedesktop.UPower.PowerProfiles", "ActiveProfile"]
 
-PALETTES = {
-    "everforest": dict(
-        bg0="#2d353b", bg1="#343f44", bg2="#3d484d", bg3="#475258", fg="#d3c6aa",
-        grey="#859289", green="#a7c080", aqua="#83c092", blue="#7fbbb3", yellow="#dbbc7f",
-        red="#e67e80", edge="#1e2326", on_accent="#232a2e", shadow="rgba(0,0,0,0.55)"),
-    "everforest-light": dict(
-        bg0="#fdf6e3", bg1="#f4f0d9", bg2="#efebd4", bg3="#e6e2cc", fg="#5c6a72",
-        grey="#939f91", green="#8da101", aqua="#35a77c", blue="#3a94c5", yellow="#dfa000",
-        red="#f85552", edge="#d8d3ba", on_accent="#fdf6e3", shadow="rgba(60,60,40,0.25)"),
-}
-P = PALETTES.get(THEME, PALETTES["everforest"])
+P = palette.load(THEME)
 
 CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.control-center { background: transparent; }
@@ -200,6 +192,7 @@ def sun_icon(value):
     return "\U000f00de" if value < 34 else "\U000f00df" if value < 67 else "\U000f00e0"
 I_PLUS, I_CHECK = "\U000f0415", "\U000f012c"
 I_POWER = "\U000f0425"
+I_SETTINGS = "\U000f0493"
 DEV_ICONS = {
     "audio-headset": "\U000f02ce", "audio-headphones": "\U000f02cb", "audio-card": "\U000f04c3",
     "input-keyboard": "\U000f030c", "input-mouse": "\U000f037d", "input-gaming": "\U000f0297",
@@ -693,9 +686,13 @@ class ControlCenter(Gtk.Application):
         scroll.set_child(self.devs)
         popup.append(scroll)
 
-        footer = Gtk.Button(label=f"{I_POWER}   Power menu")
-        footer.add_css_class("footer")
-        footer.connect("clicked", self.open_power)
+        footer = Gtk.Box(spacing=8, homogeneous=True)
+        for text_, action in ((f"{I_SETTINGS}   Settings", self.open_settings),
+                              (f"{I_POWER}   Power menu", self.open_power)):
+            b = Gtk.Button(label=text_)
+            b.add_css_class("footer")
+            b.connect("clicked", action)
+            footer.append(b)
         popup.append(footer)
 
         keys = Gtk.EventControllerKey()
@@ -1142,6 +1139,10 @@ class ControlCenter(Gtk.Application):
             self.win.close()
             return True
         return False
+
+    def open_settings(self, *_):
+        self.win.close()
+        spawn(os.path.expanduser("~/.config/waybar/scripts/settings.py"))
 
     def open_power(self, *_):
         self.win.close()

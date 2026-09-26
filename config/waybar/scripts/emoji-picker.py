@@ -2,7 +2,7 @@
 """
 Emoji picker (SUPER+.), Everforest style.
 
-  emoji-picker.py [everforest|everforest-light] [--hidden]
+  emoji-picker.py [THEME] [--hidden]
 
 - Type to search (names and keywords), or browse by category (Tab / Shift+Tab).
 - Click an emoji (or Enter for the first match) to put it into the app you were
@@ -41,9 +41,11 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import palette  # noqa: E402
+
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "everforest"
+THEME = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else palette.current()
 WIDTH = 500
 COLUMNS = 9
 # Unicode Emoji 18.0 + CLDR keywords (lines: emoji, category, name, search words)
@@ -59,17 +61,7 @@ CATEGORIES = [("😀", "Smileys"), ("👋", "People"), ("🐵", "Animals & natur
               ("🌍", "Travel & places"), ("🎃", "Activities"), ("👓", "Objects"), ("🏧", "Symbols"),
               ("🏁", "Flags")]
 
-PALETTES = {
-    "everforest": dict(
-        bg0="#2d353b", bg1="#343f44", bg2="#3d484d", bg3="#475258", fg="#d3c6aa",
-        grey="#859289", green="#a7c080", aqua="#83c092", yellow="#dbbc7f", edge="#1e2326",
-        on_accent="#232a2e", shadow="rgba(0,0,0,0.55)"),
-    "everforest-light": dict(
-        bg0="#fdf6e3", bg1="#f4f0d9", bg2="#efebd4", bg3="#e6e2cc", fg="#5c6a72",
-        grey="#939f91", green="#8da101", aqua="#35a77c", yellow="#dfa000", edge="#d8d3ba",
-        on_accent="#fdf6e3", shadow="rgba(60,60,40,0.25)"),
-}
-P = PALETTES.get(THEME, PALETTES["everforest"])
+P = palette.load(THEME)
 
 CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.emoji-picker { background: transparent; }
@@ -277,6 +269,11 @@ class Picker(Gtk.Application):
         esc.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
         esc.connect("key-pressed", self.on_escape)
         win.add_controller(esc)
+        # arrows in the grid (the FlowBox's own cursor keys don't move here)
+        arrows = Gtk.EventControllerKey()
+        arrows.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        arrows.connect("key-pressed", self.on_arrow)
+        win.add_controller(arrows)
 
         if LS is not None and (not hasattr(LS, "is_supported") or LS.is_supported()):
             LS.init_for_window(win)
@@ -437,11 +434,57 @@ class Picker(Gtk.Application):
     # ----- keys --------------------------------------------------------------
     def on_search_key(self, _ctl, keyval, _code, _state):
         if keyval == Gdk.KEY_Down:
-            first = self.first_visible()
+            first = self.recent_box.get_first_child() if self.recent_box.get_visible() else self.first_visible()
             if first is not None:
                 first.grab_focus()
                 return True
         return False
+
+    def shown(self, flow):
+        """The emoji a grid shows now, in order."""
+        out = []
+        child = flow.get_first_child()
+        while child is not None:
+            if flow is not self.flow or self.visible(child):
+                out.append(child)
+            child = child.get_next_sibling()
+        return out
+
+    def on_arrow(self, _ctl, keyval, _code, _state):
+        step = {Gdk.KEY_Left: -1, Gdk.KEY_Right: 1, Gdk.KEY_Up: -COLUMNS, Gdk.KEY_Down: COLUMNS}.get(keyval)
+        child = self.win.get_focus()
+        if step is None or not hasattr(child, "emoji"):
+            return False
+        # "recently used" and the main grid work as one grid
+        grids = [self.shown(b) for b in (self.recent_box, self.flow) if b.get_visible()]
+        g = next((k for k, items in enumerate(grids) if child in items), None)
+        if g is None:
+            return False
+        items, i = grids[g], grids[g].index(child)
+        prev = grids[g - 1] if g > 0 else []
+        after = grids[g + 1] if g + 1 < len(grids) else []
+        col, last_row = i % COLUMNS, (len(items) - 1) // COLUMNS
+        target = None
+        if 0 <= i + step < len(items):
+            target = items[i + step]
+        elif step == 1:
+            target = after[0] if after else None
+        elif step == -1:
+            target = prev[-1] if prev else None
+        elif step > 0:
+            if i // COLUMNS < last_row:             # a shorter last row below
+                target = items[-1]
+            elif after:
+                target = after[min(col, len(after) - 1)]
+        elif prev:                                  # up, from the top row
+            target = prev[min((len(prev) - 1) // COLUMNS * COLUMNS + col, len(prev) - 1)]
+        else:
+            self.search.grab_focus()
+            self.search.set_position(-1)
+            return True
+        if target is not None:
+            target.grab_focus()
+        return True
 
     def on_escape(self, _ctl, keyval, _code, state):
         # Tab / Shift+Tab: next / previous category ("All" first)
