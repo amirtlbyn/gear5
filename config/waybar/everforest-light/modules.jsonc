@@ -1,0 +1,227 @@
+{
+  "group/desks": {
+    "orientation": "horizontal",
+    "modules": ["custom/desk#d1", "custom/desk#d2", "custom/desk#d3", "custom/desk#d4", "custom/desk#d5", "custom/desk#d6", "custom/desk#d7", "custom/desk#d8", "custom/desk#d9", "custom/desk#d10"],
+  },
+  "custom/desk#d1": {
+    "exec": "~/.config/waybar/scripts/desk.sh 1",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 1",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+  "custom/desk#d2": {
+    "exec": "~/.config/waybar/scripts/desk.sh 2",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 2",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+  "custom/desk#d3": {
+    "exec": "~/.config/waybar/scripts/desk.sh 3",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 3",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+  "custom/desk#d4": {
+    "exec": "~/.config/waybar/scripts/desk.sh 4",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 4",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+  "custom/desk#d5": {
+    "exec": "~/.config/waybar/scripts/desk.sh 5",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 5",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+  "custom/desk#d6": {
+    "exec": "~/.config/waybar/scripts/desk.sh 6",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 6",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+  "custom/desk#d7": {
+    "exec": "~/.config/waybar/scripts/desk.sh 7",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 7",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+  "custom/desk#d8": {
+    "exec": "~/.config/waybar/scripts/desk.sh 8",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 8",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+  "custom/desk#d9": {
+    "exec": "~/.config/waybar/scripts/desk.sh 9",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 9",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+  "custom/desk#d10": {
+    "exec": "~/.config/waybar/scripts/desk.sh 10",
+    "return-type": "json", "interval": "once", "signal": 8,
+    "on-click": "~/.config/waybar/scripts/desk.sh go 10",
+    "on-scroll-up": "~/.config/waybar/scripts/desk.sh step -1",
+    "on-scroll-down": "~/.config/waybar/scripts/desk.sh step 1",
+  },
+
+  "hyprland/workspaces": {
+      "disable-scroll": true,
+      "all-outputs": false,
+      "on-click": "activate",
+      "format": "{icon}",
+      "format-icons": { "1": "1", "2": "2", "3": "3", "4": "4", "5": "5", "6": "6", "7": "7", "8": "8", "9": "9", "10": "10", "11": "1", "12": "2", "13": "3", "14": "4", "15": "5", "16": "6", "17": "7", "18": "8", "19": "9", "20": "10", "21": "1", "22": "2", "23": "3", "24": "4", "25": "5", "26": "6", "27": "7", "28": "8", "29": "9", "30": "10", "31": "1", "32": "2", "33": "3", "34": "4", "35": "5", "36": "6", "37": "7", "38": "8", "39": "9", "40": "10" },
+  },
+  
+  "custom/launcher": {
+      "exec": "~/.config/waybar/scripts/distro-icon.sh",
+      "interval": "once",
+      "format": "{}",
+      "on-click": "~/.config/waybar/scripts/popup.sh launcher everforest-light",
+      "tooltip": false
+    },
+
+    "backlight": {
+      "device": "nvidia_0",
+      "max-length": "4",
+      "format": "{icon}",
+      "tooltip-format": "{percent}%",
+      "format-icons": ["","","","", "", "", ""],
+      "on-click": "",
+      "on-scroll-up": "brightnessctl set 10%-",
+      "on-scroll-down": "brightnessctl set +10%"
+  },
+
+  "memory": {
+    "interval": 30,
+    "format": "  {}%",
+    "format-alt":" {used:0.1f}G",
+    "max-length": 10
+},
+
+
+  "group/audio": {
+  "orientation": "horizontal",
+  "drawer": {
+    "transition-duration": 300,
+    "transition-left-to-right": false,
+  },
+  "modules": ["pulseaudio", "pulseaudio/slider"]
+},
+
+"pulseaudio/slider": {
+  "min": 0,
+  "max": 100,
+  "orientation": "horizontal"
+},
+
+"pulseaudio": {
+      "scroll-step": 5,
+      "format": "{icon} {volume}%",
+      "format-bluetooth": "{icon}  {volume}%",
+      "format-bluetooth-muted": "  muted",
+      "format-muted": " muted",
+      "format-icons": {
+          "headphone": "",
+          "hands-free": "",
+          "headset": "",
+          "phone": "",
+          "portable": "",
+          "car": "",
+          "default": ["", "", ""]
+      },
+      "on-click": "~/.config/waybar/scripts/popup.sh volume-popup everforest-light",
+      "on-click-right": "pavucontrol",
+    "on-click-middle": "pactl set-sink-mute @DEFAULT_SINK@ toggle",
+  },
+
+"network": {
+      "format-wifi": " {signalStrength}%",
+      "format-ethernet": " {signalStrength}%",
+      "format-disconnected": " --",
+      "on-click": "~/.config/waybar/scripts/popup.sh wifi-menu everforest-light",
+      "format-disabled": " off",
+      "tooltip-format-wifi": "{essid}  ({signalStrength}%)"
+},
+
+"battery": {
+    "bat": "BAT0",
+    "adapter": "ADP0",
+    "interval": 60,
+    "states": {
+        "warning": 30,
+        "critical": 15
+    },
+    "max-length": 10,
+    "format": "{icon} {capacity}%",
+    "format-warning": "{icon} {capacity}%",
+    "format-critical": "{icon} {capacity}%",
+    "format-charging": " {capacity}%",
+    "format-plugged": " {capacity}%",
+    "on-click": "~/.config/waybar/scripts/popup.sh control-center everforest-light",
+    "format-full": " 100%",
+    "format-icons": ["", "", "", "", "", "", "", "", "", ""]
+},
+
+"clock": {
+    "format": " {:%H:%M}"
+},
+
+"custom/clock": {
+    "exec": "~/.config/waybar/scripts/clock.sh",
+    "return-type": "json",
+    "on-click": "~/.config/waybar/scripts/popup.sh worldclock everforest-light",
+    "on-scroll-up": "~/.config/waybar/scripts/clock.sh prev",
+    "on-scroll-down": "~/.config/waybar/scripts/clock.sh next"
+},
+
+"custom/persian-date": {
+  "exec": "~/.config/waybar/scripts/persian-date.py",
+  "interval": 600,
+  "format": "󰃭 {}",
+  "tooltip": false
+},
+
+"custom/idle": {
+  "exec": "~/.config/hypr/scripts/idle.sh status",
+  "return-type": "json",
+  "interval": 30,
+  "signal": 9,
+  "on-click": "~/.config/waybar/scripts/popup.sh power-popup everforest-light"
+},
+
+"custom/dates": {
+  "on-click": "~/.config/waybar/scripts/popup.sh calendar-popup everforest-light",
+  "exec": "~/.config/waybar/scripts/dates.py",
+  "return-type": "json",
+  "interval": 300,
+  "format": " {}"
+},
+
+"custom/lang": {
+  "exec": "~/.config/waybar/scripts/lang.sh",
+  "interval": 1,
+  "format": "  {}",
+  "on-click": "hyprctl switchxkblayout all next",
+  "tooltip": false
+},
+
+"clock#date": {
+  "format": " {:%A, %B %d, %Y}"
+},
+
+"custom/powermenu": {
+    "format": "",
+    "on-click": "~/.config/waybar/scripts/popup.sh power-popup everforest-light",
+    "tooltip": false
+  }
+}

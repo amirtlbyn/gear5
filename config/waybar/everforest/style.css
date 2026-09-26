@@ -1,0 +1,152 @@
+@import "../colors/everforest.css";
+
+/* margin: top right bottom left */
+/* Spacing outside the element */
+
+/* padding: top right bottom left */
+/* Spacing inside the element */
+
+* {
+  font-family: JetBrainsMono Nerd Font, FontAwesome;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+window#waybar {
+  background-color: @fg;
+  color: @bg0;
+  transition-property: background-color;
+  transition-duration: 0.5s;
+  border-radius: 0px 0px 15px 15px;
+  transition-duration: .5s;
+
+  border-bottom-width: 5px;
+  border-bottom-color: #7d6a40;
+  border-bottom-style: solid;
+}
+
+#custom-launcher,
+#clock,
+#custom-clock,
+#clock-date,
+#custom-dates,
+#workspaces,
+#custom-lang,
+#custom-idle,
+#pulseaudio,
+#network,
+#battery,
+#custom-powermenu {
+  background-color: @bg0;
+  color: @fg;
+
+  padding-left: 10px;
+  padding-right: 10px;
+  margin-top: 7px;
+  margin-bottom: 12px;
+	border-radius: 10px;
+
+  border-bottom-width: 5px;
+  border-bottom-color: #161a1d;
+  border-bottom-style: solid;
+}
+
+#workspaces {
+  padding: 0px;
+}
+
+#workspaces button.active,
+#workspaces button.visible {
+  background-color: @blue;
+  color: @bg0;
+
+	border-radius: 10px;
+
+  margin-bottom: -5px;
+
+  border-bottom-width: 5px;
+  border-bottom-color: #366660;
+  border-bottom-style: solid;
+}
+
+#custom-launcher {
+  background-color: @green;
+  color: @bg0;
+  border-bottom-color: #556a35;
+
+  margin-left: 15px;
+  padding-left: 20px;
+  padding-right: 21px;
+}
+
+#custom-powermenu {
+  background-color: @red;
+  color: @bg0;
+  border-bottom-color: #951c1f;
+
+  margin-right: 15px;
+  padding-left: 20px;
+  padding-right: 23px;
+}
+/* ===== volume slider next to the volume box ===== */
+#pulseaudio-slider {
+  background-color: @bg0;
+  padding: 0 14px;
+  margin-top: 7px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border-bottom: 5px solid #161a1d;
+}
+#pulseaudio-slider slider {
+  min-height: 14px;
+  min-width: 14px;
+  margin: -5px 0;
+  border-radius: 50%;
+  background: @fg;
+  border: none;
+  box-shadow: none;
+}
+#pulseaudio-slider trough {
+  min-height: 6px;
+  min-width: 110px;
+  border-radius: 6px;
+  background: alpha(@fg, 0.2);
+}
+#pulseaudio-slider highlight {
+  border-radius: 6px;
+  background: @green;
+}
+
+#pulseaudio-slider { margin-left: 12px; margin-right: 12px; }
+
+#network.disconnected, #network.disabled { color: alpha(@fg, 0.45); }
+
+#custom-idle.awake { color: @yellow; }
+
+
+/* ===== clickable desks (replace hyprland/workspaces, which can't talk to the Lua config) ===== */
+#desks {
+  background-color: @bg0;
+  margin-top: 7px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border-bottom: 5px solid #161a1d;
+  padding-left: 10px;
+  padding-right: 2px;
+}
+#custom-desk {
+  color: @fg;
+  padding: 0 12px;
+  border-radius: 10px;
+  transition: background-color 0.2s;
+}
+#custom-desk.empty { color: alpha(@fg, 0.55); }
+#custom-desk:hover { background-color: alpha(@fg, 0.12); }
+#custom-desk.active {
+  background-color: @blue;
+  color: @bg0;
+  margin-bottom: -5px;
+  border-bottom: 5px solid #366660;
+}
+
+#custom-clock.other { color: @green; }   /* showing another timezone */
