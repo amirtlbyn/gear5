@@ -217,7 +217,6 @@
 
 "custom/lang": {
   "exec": "~/.config/waybar/scripts/lang.sh",
-  "interval": 1,
   "format": "  {}",
   "on-click": "hyprctl switchxkblayout all next",
   "tooltip": false
