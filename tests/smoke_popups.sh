@@ -16,4 +16,12 @@ for p in volume-popup control-center wifi-menu calendar-popup power-popup calcul
     echo "ok   $p"
   fi
 done
+# every Settings page, with the bar popups' panels inside it
+err=$(GTK_A11Y=none dbus-run-session -- python3 ../../../tests/smoke_settings_pages.py 2>&1 >/dev/null)
+rc=$?
+if [[ $rc -ne 0 ]] || grep -q 'Traceback\|FAIL' <<<"$err"; then
+  echo "FAIL settings pages (exit $rc)"; grep -A5 'Traceback\|FAIL' <<<"$err" | tail -8; fail=1
+else
+  echo "ok   settings pages"
+fi
 exit $fail

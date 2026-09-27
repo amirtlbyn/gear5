@@ -14,10 +14,12 @@ Sound popup for Waybar in the Everforest style.
 - Every app that plays sound gets its own volume and mute.
 - Scroll on any slider to change it.
 """
+import ctypes
 import hashlib
 import json
 import re
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -36,7 +38,7 @@ LAYER_LIBS = [
     "/usr/lib/libgtk4-layer-shell.so.0",
     "/usr/lib/x86_64-linux-gnu/libgtk4-layer-shell.so.0",
 ]
-if not os.environ.get("VOLUME_POPUP_PRELOADED"):
+if __name__ == "__main__" and not os.environ.get("VOLUME_POPUP_PRELOADED"):
     lib = next((p for p in LAYER_LIBS if os.path.exists(p)), None)
     os.environ["VOLUME_POPUP_PRELOADED"] = "1"
     if lib:
@@ -60,14 +62,16 @@ import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 else palette.current()
+# imported by Settings (panel.py): no window, the theme in use
+THEME = sys.argv[1] if __name__ == "__main__" and len(sys.argv) > 1 else palette.current()
 WIDTH = 440
 MAX_VOLUME = 100  # same limit as the volume keys
 MAX_PLAYERS = 8
 CARD_HEIGHT = 230  # every Now Playing card is this tall, whatever it shows
 ART_CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "volume-popup")
 
-P = palette.load(THEME)
+ALIASES = {}
+P = palette.load(THEME, **ALIASES)
 
 # where the music comes from: label (None = the player's own name), icon, colour
 BRANDS = {
@@ -80,7 +84,7 @@ BRANDS = {
 }
 BROWSERS = ("firefox", "zen", "chromium", "chrome", "brave", "vivaldi", "librewolf", "edge")
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+STYLE = """
 window.volume-popup { background: transparent; }
 .backdrop { background: transparent; }
 
@@ -208,6 +212,7 @@ popover listview > row:selected, popover listview > row:hover { background: @bg3
 .media.{key} button.play:hover {{ background: shade({color}, 1.1); }}
 .media.{key} scale highlight {{ background-image: none; background: {color}; }}
 """ for key, (_label, _icon, color) in BRANDS.items())
+CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
 
 # icons (JetBrainsMono Nerd Font)
 I_SPK_MUTE, I_SPK_LOW, I_SPK_MID, I_SPK_HIGH = "\U000f075f", "\U000f057f", "\U000f0580", "\U000f057e"
@@ -397,6 +402,16 @@ def read_state():
     return dict(sinks=sinks, sources=sources, apps=apps,
                 default_sink=default_sink, default_source=default_source,
                 players=read_players())
+
+
+def die_with_parent():
+    """In a child process: end when the popup ends, even when it is killed (a popup
+    restart, a test timeout). A leftover `pactl subscribe` keeps its connection, and
+    PipeWire refuses every app once about 64 of them are open."""
+    try:
+        ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM)   # 1 = PR_SET_PDEATHSIG
+    except (OSError, AttributeError):
+        pass
 
 
 def run_bg(work, done):
@@ -967,26 +982,243 @@ class MediaCard(Gtk.Box):
             self.play_btn.set_label(I_PAUSE if self.status == "Playing" else I_PLAY)
 
 
-class VolumePopup(Gtk.Application):
-    def __init__(self):
-        super().__init__(application_id="io.local.volumepopup")
-        self.win = None
+class VolumePanel:
+    """Now playing, speaker, microphone and every app's volume. Shown by the popup
+    below and by Settings (see panel.py for the host), which leaves out Now playing."""
+
+    def __init__(self, host):
+        self.host = host
         self.app_cards = {}
         self.media_cards = {}
         self.subscriber = None
         self.refresh_pending = False
+        self.restart_players = False
+        self.build()
+        self.watch_changes()
+        GLib.timeout_add_seconds(2, self._tick)
+        GLib.timeout_add_seconds(1, self._tick_media)
+
+    def on_show(self):
+        self.restart_players = True
+        self.refresh()
+
+    def on_hide(self):
+        pass
+
+    def stop(self):
+        if self.subscriber:
+            self.subscriber.kill()
+
+    def build(self):
+        popup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        popup.add_css_class("popup")
+        popup.set_size_request(WIDTH, -1)
+
+        header = Gtk.Box(spacing=10)
+        header.append(label(f"{I_SPK_HIGH}  Sound", "title", xalign=0, hexpand=True))
+        self.header_sub = label(css="title-sub", xalign=1)
+        header.append(self.header_sub)
+        popup.append(header)
+
+        # now playing
+        self.media_title = self.section("NOW PLAYING")
+        popup.append(self.media_title)
+        self.media_box = MediaCarousel()
+        popup.append(self.media_box)
+        if self.host.embedded:  # music isn't a setting
+            self.media_title.set_visible(False)
+            self.media_box.set_visible(False)
+
+        # speaker
+        popup.append(self.section("OUTPUT"))
+        self.out_card = VolumeCard("sink", "@DEFAULT_SINK@")
+        self.out_pick = DevicePicker(lambda name: pactl("set-default-sink", name))
+        self.out_card.extra.append(self.out_pick)
+        popup.append(self.out_card)
+
+        # microphone
+        popup.append(self.section("MICROPHONE"))
+        self.in_card = VolumeCard("source", "@DEFAULT_SOURCE@", mic=True)
+        self.in_pick = DevicePicker(lambda name: pactl("set-default-source", name))
+        self.in_card.extra.append(self.in_pick)
+        popup.append(self.in_card)
+
+        # apps
+        popup.append(self.section("APPS"))
+        self.apps_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.no_apps = label("No app is playing sound", "placeholder", xalign=0)
+        self.apps_box.append(self.no_apps)
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                    propagate_natural_height=True, max_content_height=300)
+        scroll.set_child(self.apps_box)
+        popup.append(scroll)
+
+        if not self.host.embedded:  # Settings opens no other app
+            settings = Gtk.Button(label=f"{I_SETTINGS}   Sound settings")
+            settings.add_css_class("footer")
+            settings.connect("clicked", self.open_settings)
+            popup.append(settings)
+        self.root = popup
+
+
+    @staticmethod
+    def section(text):
+        return label(text, "section", xalign=0)
+
+    # ----- state -------------------------------------------------------------
+    def watch_changes(self):
+        """Follow `pactl subscribe` so the popup updates live (keys, other apps, plugging)."""
+        try:
+            self.subscriber = subprocess.Popen(["pactl", "subscribe"], stdout=subprocess.PIPE,
+                                               stderr=subprocess.DEVNULL, text=True,
+                                               preexec_fn=die_with_parent)
+        except OSError:
+            return
+        out = self.subscriber.stdout
+
+        def reader():
+            for line in out:
+                if any(w in line for w in ("sink", "source", "server")):
+                    GLib.idle_add(self.queue_refresh)
+        threading.Thread(target=reader, daemon=True).start()
+
+    def queue_refresh(self):
+        # many events arrive at once; refresh once (and only while it is open)
+        if not self.host.is_shown():
+            return False
+        if not self.refresh_pending:
+            self.refresh_pending = True
+            GLib.timeout_add(80, lambda: (self.refresh(), False)[1])
+        return False
+
+    def _tick(self):
+        if self.host.is_shown():
+            self.refresh()   # catches track changes of the media players
+        return True
+
+    def _tick_media(self):
+        if not self.host.is_shown():
+            return True
+        for card in self.media_cards.values():
+            if isinstance(card, MediaCard):
+                card.tick()
+        return True
+
+    def refresh(self):
+        self.refresh_pending = False
+        run_bg(read_state, self.apply)
+
+    def apply(self, st):
+        sink = next((s for s in st["sinks"] if s["name"] == st["default_sink"]), None)
+        if sink:
+            vol, muted = percent(sink.get("volume")), bool(sink.get("mute"))
+            self.out_card.set_names(device_label(sink))
+            self.out_card.update(vol, muted)
+            self.header_sub.set_label("muted" if muted else f"{vol}%")
+        else:
+            self.out_card.set_names("No output device")
+            self.header_sub.set_label("")
+        self.out_pick.update(st["sinks"], st["default_sink"])
+
+        src = next((s for s in st["sources"] if s["name"] == st["default_source"]), None)
+        if src:
+            self.in_card.set_names(device_label(src))
+            self.in_card.update(percent(src.get("volume")), bool(src.get("mute")))
+        else:
+            self.in_card.set_names("No microphone")
+        self.in_pick.update(st["sources"], st["default_source"])
+
+        self.apply_apps(st["apps"], st["sinks"])
+        if not self.host.embedded:
+            self.apply_players(st["players"], browser_tabs(st["apps"], st["players"]), st["sinks"])
+
+    def apply_apps(self, apps, sinks):
+        sink_names = {s.get("index"): device_label(s) for s in sinks}
+        seen = set()
+        for a in apps:
+            idx = a.get("index")
+            seen.add(idx)
+            card = self.app_cards.get(idx)
+            if card is None:
+                card = VolumeCard("sink-input", idx)
+                card.picker = StreamPicker(idx)
+                card.extra.append(card.picker)
+                self.app_cards[idx] = card
+                self.apps_box.append(card)
+            name, media = app_info(a)
+            card.picker.update(sinks, a.get("sink"))
+            # the menu shows the speaker; without a menu say where it plays
+            where = sink_names.get(a.get("sink"), "") if not card.picker.get_visible() else ""
+            sub = " · ".join(x for x in (media, where if len(sinks) > 1 else "") if x)
+            card.set_names(name, sub)
+            card.update(percent(a.get("volume")), bool(a.get("mute")))
+        for idx in list(self.app_cards):
+            if idx not in seen:
+                self.apps_box.remove(self.app_cards.pop(idx))
+        self.no_apps.set_visible(not self.app_cards)
+
+    def apply_players(self, players, tabs=(), sinks=()):
+        seen = []
+        for p in players:
+            seen.append(p["name"])
+            card = self.media_cards.get(p["name"])
+            if card is None:
+                card = MediaCard(p["name"])
+                self.media_cards[p["name"]] = card
+            card.update(p)
+        # browser tabs without a player: after the real players, playing ones first
+        for a in sorted(tabs, key=lambda a: bool(a.get("corked"))):
+            key = f"tab:{a.get('index')}"
+            seen.append(key)
+            card = self.media_cards.get(key)
+            if card is None:
+                card = TabCard(a.get("index"))
+                self.media_cards[key] = card
+            card.update(a, sinks)
+        for name in list(self.media_cards):
+            if name not in seen:
+                self.media_cards.pop(name)
+        # the playing one first; swipe sideways for the others
+        self.media_box.set_cards(seen, self.media_cards, restart=self.restart_players)
+        self.restart_players = False
+        self.media_title.set_label(f"NOW PLAYING  ·  {len(seen)}" if len(seen) > 1 else "NOW PLAYING")
+        self.media_title.set_visible(bool(seen))
+        self.media_box.set_visible(bool(seen))
+
+    # ----- events ------------------------------------------------------------
+    def open_settings(self, *_):
+        try:
+            subprocess.Popen(["pavucontrol"], start_new_session=True)
+        except OSError:
+            return
+        self.host.close()
+
+
+class VolumePopup(Gtk.Application):
+    """The popup: the panel in a layer-shell window, right under the mouse."""
+
+    embedded = False
+
+    def __init__(self):
+        super().__init__(application_id="io.local.volumepopup")
+        self.win = None
+        self.panel = None
         self.start_hidden = "--hidden" in sys.argv
+
+    # ----- host (see panel.py) ---------------------------------------------------
+    def close(self):
+        self.win.close()
+
+    def is_shown(self):
+        return self.win is not None and self.win.get_visible()
 
     # every later launch (clicking the bar icon) opens or closes the same window
     def do_activate(self):
         if self.win is None:
             self.hold()   # keep running while hidden, so the next open is instant
             self.build()
-            self.watch_changes()
-            GLib.timeout_add_seconds(2, self._tick)
-            GLib.timeout_add_seconds(1, self._tick_media)
             if self.start_hidden:
-                self.refresh()
+                self.panel.refresh()
                 return
         if self.win.get_visible():
             self.win.close()
@@ -997,9 +1229,8 @@ class VolumePopup(Gtk.Application):
 
     def show_popup(self):
         self.place()
-        self.restart_players = True
         self.win.present()
-        self.refresh()
+        self.panel.on_show()
 
     def on_close(self, win):
         self.closed_at = GLib.get_monotonic_time()
@@ -1007,8 +1238,8 @@ class VolumePopup(Gtk.Application):
         return True
 
     def do_shutdown(self):
-        if self.subscriber:
-            self.subscriber.kill()
+        if self.panel:
+            self.panel.stop()
         Gtk.Application.do_shutdown(self)
 
     @staticmethod
@@ -1042,52 +1273,8 @@ class VolumePopup(Gtk.Application):
         win.set_decorated(False)
         win.connect("close-request", self.on_close)
         self.win = win
-
-        popup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.popup = popup
-        popup.add_css_class("popup")
-        popup.set_size_request(WIDTH, -1)
-
-        header = Gtk.Box(spacing=10)
-        header.append(label(f"{I_SPK_HIGH}  Sound", "title", xalign=0, hexpand=True))
-        self.header_sub = label(css="title-sub", xalign=1)
-        header.append(self.header_sub)
-        popup.append(header)
-
-        # now playing
-        self.media_title = self.section("NOW PLAYING")
-        popup.append(self.media_title)
-        self.media_box = MediaCarousel()
-        popup.append(self.media_box)
-
-        # speaker
-        popup.append(self.section("OUTPUT"))
-        self.out_card = VolumeCard("sink", "@DEFAULT_SINK@")
-        self.out_pick = DevicePicker(lambda name: pactl("set-default-sink", name))
-        self.out_card.extra.append(self.out_pick)
-        popup.append(self.out_card)
-
-        # microphone
-        popup.append(self.section("MICROPHONE"))
-        self.in_card = VolumeCard("source", "@DEFAULT_SOURCE@", mic=True)
-        self.in_pick = DevicePicker(lambda name: pactl("set-default-source", name))
-        self.in_card.extra.append(self.in_pick)
-        popup.append(self.in_card)
-
-        # apps
-        popup.append(self.section("APPS"))
-        self.apps_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.no_apps = label("No app is playing sound", "placeholder", xalign=0)
-        self.apps_box.append(self.no_apps)
-        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
-                                    propagate_natural_height=True, max_content_height=300)
-        scroll.set_child(self.apps_box)
-        popup.append(scroll)
-
-        settings = Gtk.Button(label=f"{I_SETTINGS}   Sound settings")
-        settings.add_css_class("footer")
-        settings.connect("clicked", self.open_settings)
-        popup.append(settings)
+        self.panel = VolumePanel(self)
+        popup = self.popup = self.panel.root
 
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", self.on_key)
@@ -1138,143 +1325,11 @@ class VolumePopup(Gtk.Application):
             popup.set_halign(Gtk.Align.END)
             popup.set_margin_end(240)
 
-    @staticmethod
-    def section(text):
-        return label(text, "section", xalign=0)
-
-    # ----- state -------------------------------------------------------------
-    def watch_changes(self):
-        """Follow `pactl subscribe` so the popup updates live (keys, other apps, plugging)."""
-        try:
-            self.subscriber = subprocess.Popen(["pactl", "subscribe"], stdout=subprocess.PIPE,
-                                               stderr=subprocess.DEVNULL, text=True)
-        except OSError:
-            return
-        out = self.subscriber.stdout
-
-        def reader():
-            for line in out:
-                if any(w in line for w in ("sink", "source", "server")):
-                    GLib.idle_add(self.queue_refresh)
-        threading.Thread(target=reader, daemon=True).start()
-
-    def queue_refresh(self):
-        # many events arrive at once; refresh once (and only while it is open)
-        if not self.win.get_visible():
-            return False
-        if not self.refresh_pending:
-            self.refresh_pending = True
-            GLib.timeout_add(80, lambda: (self.refresh(), False)[1])
-        return False
-
-    def _tick(self):
-        if self.win.get_visible():
-            self.refresh()   # catches track changes of the media players
-        return True
-
-    def _tick_media(self):
-        if not self.win.get_visible():
-            return True
-        for card in self.media_cards.values():
-            if isinstance(card, MediaCard):
-                card.tick()
-        return True
-
-    def refresh(self):
-        self.refresh_pending = False
-        run_bg(read_state, self.apply)
-
-    def apply(self, st):
-        if self.win is None:
-            return
-        sink = next((s for s in st["sinks"] if s["name"] == st["default_sink"]), None)
-        if sink:
-            vol, muted = percent(sink.get("volume")), bool(sink.get("mute"))
-            self.out_card.set_names(device_label(sink))
-            self.out_card.update(vol, muted)
-            self.header_sub.set_label("muted" if muted else f"{vol}%")
-        else:
-            self.out_card.set_names("No output device")
-            self.header_sub.set_label("")
-        self.out_pick.update(st["sinks"], st["default_sink"])
-
-        src = next((s for s in st["sources"] if s["name"] == st["default_source"]), None)
-        if src:
-            self.in_card.set_names(device_label(src))
-            self.in_card.update(percent(src.get("volume")), bool(src.get("mute")))
-        else:
-            self.in_card.set_names("No microphone")
-        self.in_pick.update(st["sources"], st["default_source"])
-
-        self.apply_apps(st["apps"], st["sinks"])
-        self.apply_players(st["players"], browser_tabs(st["apps"], st["players"]), st["sinks"])
-
-    def apply_apps(self, apps, sinks):
-        sink_names = {s.get("index"): device_label(s) for s in sinks}
-        seen = set()
-        for a in apps:
-            idx = a.get("index")
-            seen.add(idx)
-            card = self.app_cards.get(idx)
-            if card is None:
-                card = VolumeCard("sink-input", idx)
-                card.picker = StreamPicker(idx)
-                card.extra.append(card.picker)
-                self.app_cards[idx] = card
-                self.apps_box.append(card)
-            name, media = app_info(a)
-            card.picker.update(sinks, a.get("sink"))
-            # the menu shows the speaker; without a menu say where it plays
-            where = sink_names.get(a.get("sink"), "") if not card.picker.get_visible() else ""
-            sub = " · ".join(x for x in (media, where if len(sinks) > 1 else "") if x)
-            card.set_names(name, sub)
-            card.update(percent(a.get("volume")), bool(a.get("mute")))
-        for idx in list(self.app_cards):
-            if idx not in seen:
-                self.apps_box.remove(self.app_cards.pop(idx))
-        self.no_apps.set_visible(not self.app_cards)
-
-    def apply_players(self, players, tabs=(), sinks=()):
-        seen = []
-        for p in players:
-            seen.append(p["name"])
-            card = self.media_cards.get(p["name"])
-            if card is None:
-                card = MediaCard(p["name"])
-                self.media_cards[p["name"]] = card
-            card.update(p)
-        # browser tabs without a player: after the real players, playing ones first
-        for a in sorted(tabs, key=lambda a: bool(a.get("corked"))):
-            key = f"tab:{a.get('index')}"
-            seen.append(key)
-            card = self.media_cards.get(key)
-            if card is None:
-                card = TabCard(a.get("index"))
-                self.media_cards[key] = card
-            card.update(a, sinks)
-        for name in list(self.media_cards):
-            if name not in seen:
-                self.media_cards.pop(name)
-        # the playing one first; swipe sideways for the others
-        self.media_box.set_cards(seen, self.media_cards, restart=getattr(self, "restart_players", False))
-        self.restart_players = False
-        self.media_title.set_label(f"NOW PLAYING  ·  {len(seen)}" if len(seen) > 1 else "NOW PLAYING")
-        self.media_title.set_visible(bool(seen))
-        self.media_box.set_visible(bool(seen))
-
-    # ----- events ------------------------------------------------------------
     def on_key(self, _ctl, keyval, _code, _state):
         if keyval == Gdk.KEY_Escape:
             self.win.close()
             return True
         return False
-
-    def open_settings(self, *_):
-        try:
-            subprocess.Popen(["pavucontrol"], start_new_session=True)
-        except OSError:
-            return
-        self.win.close()
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ LAYER_LIBS = [
     "/usr/lib/libgtk4-layer-shell.so.0",
     "/usr/lib/x86_64-linux-gnu/libgtk4-layer-shell.so.0",
 ]
-if not os.environ.get("POWER_POPUP_PRELOADED"):
+if __name__ == "__main__" and not os.environ.get("POWER_POPUP_PRELOADED"):
     lib = next((p for p in LAYER_LIBS if os.path.exists(p)), None)
     os.environ["POWER_POPUP_PRELOADED"] = "1"
     if lib:
@@ -36,9 +36,11 @@ import palette  # noqa: E402
 import popup_backdrop  # noqa: E402
 
 IDLE = os.path.expanduser("~/.config/hypr/scripts/idle.sh")
-THEME = sys.argv[1] if len(sys.argv) > 1 else palette.current()
-P = palette.load(THEME, edge="edge_deep")
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+# imported by Settings (panel.py): no window, the theme in use
+THEME = sys.argv[1] if __name__ == "__main__" and len(sys.argv) > 1 else palette.current()
+ALIASES = dict(edge="edge_deep")
+P = palette.load(THEME, **ALIASES)
+STYLE = """
 window.power-popup { background: transparent; }
 .backdrop { background: transparent; }
 .popup {
@@ -77,6 +79,7 @@ button.act {
 button.act:hover { background: shade(@bg3, 1.1); }
 button.act.danger { background: @red; color: @bg0; border-bottom-color: @red_edge; }
 """
+CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
 
 MODES = [
     ("sleep", "\U000f04b2", "Sleep", "Lock, then sleep once nothing is running"),
@@ -90,58 +93,29 @@ def idle(*args):
     return subprocess.run([IDLE, *args], capture_output=True, text=True).stdout.strip()
 
 
-class Power(Gtk.Application):
-    def __init__(self):
-        super().__init__(application_id="io.local.powerpopup")
-        self.win = None
-        mode, _, mins = (idle("get") or "sleep 5").partition(" ")
-        self.mode = mode or "sleep"
-        self.mins = int(mins) if mins.isdigit() else 5
+class PowerPanel:
+    """What happens when you're away, after how long, and lock / sleep / power off.
+    Shown by the popup below and by Settings (see panel.py for the host)."""
 
-    # stays running hidden after the first use, so clicking the bar opens it instantly
-    def do_activate(self):
-        if self.win is not None:
-            if self.win.get_visible():
-                self.win.close()
-            elif GLib.get_monotonic_time() - getattr(self, "closed_at", 0) > 400_000:
-                # the click that just closed it (outside the popup, on the bar box)
-                # also reaches the bar, which asks to open it again: ignore that one
-                self.show_popup()
-            return
-        self.hold()
+    def __init__(self, host):
+        self.host = host
+        self.read()
         self.build()
-        if "--hidden" not in sys.argv:
-            self.show_popup()
 
-    def show_popup(self):
-        # the mode may have changed elsewhere (quick settings' Stay awake)
+    def read(self):
         mode, _, mins = (idle("get") or "sleep 5").partition(" ")
         self.mode = mode or "sleep"
         self.mins = int(mins) if mins.isdigit() else 5
-        self.update()
-        self.win.present()
 
-    def on_close(self, win):
-        self.closed_at = GLib.get_monotonic_time()
-        win.set_visible(False)   # hide, don't destroy
-        return True
+    def on_show(self):
+        # the mode may have changed elsewhere (quick settings' Stay awake)
+        self.read()
+        self.update()
+
+    def on_hide(self):
+        pass
 
     def build(self):
-        prov = Gtk.CssProvider()
-        if hasattr(prov, "load_from_string"):
-            prov.load_from_string(CSS)
-        else:
-            prov.load_from_data(CSS, -1)
-        add = getattr(Gtk, "style_context_add_provider_for_display", None) \
-            or Gtk.StyleContext.add_provider_for_display
-        add(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
-
-        win = Gtk.ApplicationWindow(application=self, title="Power")
-        win.add_css_class("power-popup")
-        win.set_decorated(False)
-        win.connect("close-request", self.on_close)
-        self.win = win
-
         popup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         popup.add_css_class("popup")
         popup.set_size_request(360, -1)
@@ -203,6 +177,88 @@ class Power(Gtk.Application):
             acts.append(b)
         popup.append(acts)
 
+        self.root = popup
+        self.update()
+
+    def update(self):
+        for k, b in self.opt_buttons.items():
+            (b.add_css_class if k == self.mode else b.remove_css_class)("on")
+        for m, b in self.chip_buttons.items():
+            (b.add_css_class if m == self.mins else b.remove_css_class)("on")
+            b.set_sensitive(self.mode != "awake")
+
+    def choose(self, mode=None, mins=None):
+        if mode:
+            self.mode = mode
+        if mins:
+            self.mins = mins
+        idle("set", self.mode, str(self.mins))
+        self.update()
+
+    def run_now(self, cmd):
+        self.host.close()
+        subprocess.Popen(["sh", "-c", f"sleep 0.3; {cmd}"], start_new_session=True)
+
+
+class Power(Gtk.Application):
+    """The popup: the panel in a layer-shell window under the bar."""
+
+    embedded = False
+
+    def __init__(self):
+        super().__init__(application_id="io.local.powerpopup")
+        self.win = None
+        self.panel = None
+
+    # ----- host (see panel.py) ---------------------------------------------------
+    def close(self):
+        self.win.close()
+
+    def is_shown(self):
+        return self.win is not None and self.win.get_visible()
+
+    # stays running hidden after the first use, so clicking the bar opens it instantly
+    def do_activate(self):
+        if self.win is not None:
+            if self.win.get_visible():
+                self.win.close()
+            elif GLib.get_monotonic_time() - getattr(self, "closed_at", 0) > 400_000:
+                # the click that just closed it (outside the popup, on the bar box)
+                # also reaches the bar, which asks to open it again: ignore that one
+                self.show_popup()
+            return
+        self.hold()
+        self.build()
+        if "--hidden" not in sys.argv:
+            self.show_popup()
+
+    def show_popup(self):
+        self.panel.on_show()
+        self.win.present()
+
+    def on_close(self, win):
+        self.closed_at = GLib.get_monotonic_time()
+        win.set_visible(False)   # hide, don't destroy
+        return True
+
+    def build(self):
+        prov = Gtk.CssProvider()
+        if hasattr(prov, "load_from_string"):
+            prov.load_from_string(CSS)
+        else:
+            prov.load_from_data(CSS, -1)
+        add = getattr(Gtk, "style_context_add_provider_for_display", None) \
+            or Gtk.StyleContext.add_provider_for_display
+        add(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+
+        win = Gtk.ApplicationWindow(application=self, title="Power")
+        win.add_css_class("power-popup")
+        win.set_decorated(False)
+        win.connect("close-request", self.on_close)
+        self.win = win
+        self.panel = PowerPanel(self)
+        popup = self.panel.root
+
         keys = Gtk.EventControllerKey()
         keys.connect("key-pressed", lambda _c, kv, *_: (win.close(), True)[1] if kv == Gdk.KEY_Escape else False)
         win.add_controller(keys)
@@ -232,27 +288,6 @@ class Power(Gtk.Application):
         else:
             win.set_child(popup)
             win.connect("notify::is-active", lambda w, _p: None if w.is_active() else w.close())
-
-        self.update()
-
-    def update(self):
-        for k, b in self.opt_buttons.items():
-            (b.add_css_class if k == self.mode else b.remove_css_class)("on")
-        for m, b in self.chip_buttons.items():
-            (b.add_css_class if m == self.mins else b.remove_css_class)("on")
-            b.set_sensitive(self.mode != "awake")
-
-    def choose(self, mode=None, mins=None):
-        if mode:
-            self.mode = mode
-        if mins:
-            self.mins = mins
-        idle("set", self.mode, str(self.mins))
-        self.update()
-
-    def run_now(self, cmd):
-        self.win.close()
-        subprocess.Popen(["sh", "-c", f"sleep 0.3; {cmd}"], start_new_session=True)
 
 
 if __name__ == "__main__":

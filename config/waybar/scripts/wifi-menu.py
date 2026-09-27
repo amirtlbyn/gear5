@@ -25,7 +25,7 @@ LAYER_LIBS = [
     "/usr/lib/libgtk4-layer-shell.so.0",
     "/usr/lib/x86_64-linux-gnu/libgtk4-layer-shell.so.0",
 ]
-if not os.environ.get("WIFI_MENU_PRELOADED"):
+if __name__ == "__main__" and not os.environ.get("WIFI_MENU_PRELOADED"):
     lib = next((p for p in LAYER_LIBS if os.path.exists(p)), None)
     os.environ["WIFI_MENU_PRELOADED"] = "1"
     if lib:
@@ -48,11 +48,13 @@ import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 else palette.current()
+# imported by Settings (panel.py): no window, the theme in use
+THEME = sys.argv[1] if __name__ == "__main__" and len(sys.argv) > 1 else palette.current()
 
-P = palette.load(THEME, edge="edge_deep")
+ALIASES = dict(edge="edge_deep")
+P = palette.load(THEME, **ALIASES)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+STYLE = """
 window.wifi-menu { background: transparent; }
 .backdrop { background: transparent; }
 
@@ -116,6 +118,7 @@ button.footer { margin-top: 10px; padding: 6px 10px; }
 .popup switch slider { background: @fg; border: none; border-radius: 12px; box-shadow: none; }
 .popup spinner { color: @green; }
 """
+CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
 
 
 # ---------------------------------------------------------------------------
@@ -275,61 +278,30 @@ class NetRow(Gtk.ListBoxRow):
             self.menu.connect_net(self.net, pw)
 
 
-class WifiMenu(Gtk.Application):
-    def __init__(self):
-        super().__init__(application_id="io.local.wifimenu")
-        self.win = None
+class WifiPanel:
+    """The switch, the networks, passwords, disconnect and forget. Shown by the popup
+    below and by Settings (see panel.py for the host)."""
+
+    def __init__(self, host):
+        self.host = host
         self.busy = False
         self.open_row = None
         self.updating_switch = False
         self.saved = set()
+        self.build()
+        GLib.timeout_add_seconds(5, self._tick)
 
-    # every later launch (clicking the bar icon) opens or closes the same window
-    def do_activate(self):
-        if self.win is None:
-            self.hold()   # keep running while hidden, so the next open is instant
-            self.build()
-            GLib.timeout_add_seconds(5, self._tick)
-            if "--hidden" in sys.argv:
-                self.refresh(quiet=True)
-                return
-        if self.win.get_visible():
-            self.win.close()
-        elif GLib.get_monotonic_time() - getattr(self, 'closed_at', 0) > 400_000:
-            # the click that just closed it (outside the popup, on the bar icon)
-            # also reaches the bar, which asks to open it again: ignore that one
-            self.show_popup()
-
-    def show_popup(self):
+    def on_show(self):
         self.set_status("")
         self.open_row = None
-        self.win.present()
         self.refresh()
 
-    def on_close(self, win):
+    def on_hide(self):
         if self.open_row is not None:
             self.open_row.collapse()
             self.open_row = None
-        self.closed_at = GLib.get_monotonic_time()
-        win.set_visible(False)   # hide, don't destroy
-        return True
 
     def build(self):
-        prov = Gtk.CssProvider()
-        if hasattr(prov, "load_from_string"):          # GTK >= 4.12
-            prov.load_from_string(CSS)
-        else:
-            prov.load_from_data(CSS, -1)
-        add = getattr(Gtk, "style_context_add_provider_for_display", None) \
-            or Gtk.StyleContext.add_provider_for_display
-        add(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
-
-        win = Gtk.ApplicationWindow(application=self, title="Wi-Fi")
-        win.add_css_class("wifi-menu")
-        win.set_decorated(False)
-        win.connect("close-request", self.on_close)
-        self.win = win
-
         popup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         popup.add_css_class("popup")
         popup.set_size_request(400, -1)
@@ -363,44 +335,13 @@ class WifiMenu(Gtk.Application):
         scroll.set_child(self.listbox)
         popup.append(scroll)
 
-        settings = Gtk.Button(label="\U000f0493   Network settings")
-        settings.add_css_class("footer")
-        settings.connect("clicked", self.open_settings)
-        popup.append(settings)
+        if not self.host.embedded:  # Settings opens no other app
+            settings = Gtk.Button(label="\U000f0493   Network settings")
+            settings.add_css_class("footer")
+            settings.connect("clicked", self.open_settings)
+            popup.append(settings)
+        self.root = popup
 
-        keys = Gtk.EventControllerKey()
-        keys.connect("key-pressed", self.on_key)
-        win.add_controller(keys)
-
-        if LS is not None and (not hasattr(LS, "is_supported") or LS.is_supported()):
-            # full-screen transparent layer: clicking outside the popup closes it
-            LS.init_for_window(win)
-            LS.set_namespace(win, "wifi-menu")
-            LS.set_layer(win, LS.Layer.OVERLAY)
-            for edge in (LS.Edge.TOP, LS.Edge.BOTTOM, LS.Edge.LEFT, LS.Edge.RIGHT):
-                LS.set_anchor(win, edge, True)
-            LS.set_exclusive_zone(win, -1)
-            LS.set_keyboard_mode(win, LS.KeyboardMode.EXCLUSIVE)
-            popup_backdrop.attach(win)   # clicks on the other screens close it too
-
-            backdrop = Gtk.Box(hexpand=True, vexpand=True)
-            backdrop.add_css_class("backdrop")
-            click = Gtk.GestureClick()
-            click.connect("pressed", lambda *_: win.close())
-            backdrop.add_controller(click)
-
-            popup.set_halign(Gtk.Align.END)
-            popup.set_valign(Gtk.Align.START)
-            popup.set_margin_top(72)
-            popup.set_margin_end(130)
-            overlay = Gtk.Overlay()
-            overlay.set_child(backdrop)
-            overlay.add_overlay(popup)
-            win.set_child(overlay)
-        else:
-            # fallback: normal window that closes when it loses focus
-            win.set_child(popup)
-            win.connect("notify::is-active", lambda w, _p: None if w.is_active() else w.close())
 
     # ----- state -------------------------------------------------------------
     def set_status(self, text="", error=False):
@@ -413,7 +354,7 @@ class WifiMenu(Gtk.Application):
         self.spinner.set_spinning(busy)
 
     def _tick(self):
-        if not self.win.get_visible():
+        if not self.host.is_shown():
             return True
         if not self.busy and self.open_row is None:
             self.refresh(quiet=True)
@@ -454,15 +395,13 @@ class WifiMenu(Gtk.Application):
             self.listbox.append(NetRow(self, net, net["ssid"] in self.saved))
 
     # ----- events ------------------------------------------------------------
-    def on_key(self, _ctl, keyval, _code, _state):
-        if keyval == Gdk.KEY_Escape:
-            if self.open_row is not None:
-                self.open_row.collapse()
-                self.open_row = None
-            else:
-                self.win.close()
-            return True
-        return False
+    def on_escape(self):
+        """Esc closes the open row first; False when there was none."""
+        if self.open_row is None:
+            return False
+        self.open_row.collapse()
+        self.open_row = None
+        return True
 
     def on_switch(self, _sw, state):
         if self.updating_switch:
@@ -529,7 +468,7 @@ class WifiMenu(Gtk.Application):
                 self.set_status(f"Connected to {ssid}")
                 notify("Connected", ssid)
                 self.refresh(quiet=True)
-                GLib.timeout_add(900, lambda: (self.win and self.win.close(), False)[1])
+                GLib.timeout_add(900, lambda: (self.host.close(), False)[1])
                 return
             # a failed brand-new connection is not kept, so you can simply retry
             if not was_saved:
@@ -595,7 +534,110 @@ class WifiMenu(Gtk.Application):
         except OSError:
             self.set_status("Install nm-connection-editor for advanced settings", error=True)
             return
-        self.win.close()
+        self.host.close()
+
+
+class WifiMenu(Gtk.Application):
+    """The popup: the panel in a layer-shell window under the bar."""
+
+    embedded = False
+
+    def __init__(self):
+        super().__init__(application_id="io.local.wifimenu")
+        self.win = None
+        self.panel = None
+
+    # ----- host (see panel.py) ---------------------------------------------------
+    def close(self):
+        if self.win is not None:
+            self.win.close()
+
+    def is_shown(self):
+        return self.win is not None and self.win.get_visible()
+
+    # every later launch (clicking the bar icon) opens or closes the same window
+    def do_activate(self):
+        if self.win is None:
+            self.hold()   # keep running while hidden, so the next open is instant
+            self.build()
+            if "--hidden" in sys.argv:
+                self.panel.refresh(quiet=True)
+                return
+        if self.win.get_visible():
+            self.win.close()
+        elif GLib.get_monotonic_time() - getattr(self, 'closed_at', 0) > 400_000:
+            # the click that just closed it (outside the popup, on the bar icon)
+            # also reaches the bar, which asks to open it again: ignore that one
+            self.show_popup()
+
+    def show_popup(self):
+        self.win.present()
+        self.panel.on_show()
+
+    def on_close(self, win):
+        self.panel.on_hide()
+        self.closed_at = GLib.get_monotonic_time()
+        win.set_visible(False)   # hide, don't destroy
+        return True
+
+    def build(self):
+        prov = Gtk.CssProvider()
+        if hasattr(prov, "load_from_string"):          # GTK >= 4.12
+            prov.load_from_string(CSS)
+        else:
+            prov.load_from_data(CSS, -1)
+        add = getattr(Gtk, "style_context_add_provider_for_display", None) \
+            or Gtk.StyleContext.add_provider_for_display
+        add(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+
+        win = Gtk.ApplicationWindow(application=self, title="Wi-Fi")
+        win.add_css_class("wifi-menu")
+        win.set_decorated(False)
+        win.connect("close-request", self.on_close)
+        self.win = win
+        self.panel = WifiPanel(self)
+        popup = self.panel.root
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        win.add_controller(keys)
+
+        if LS is not None and (not hasattr(LS, "is_supported") or LS.is_supported()):
+            # full-screen transparent layer: clicking outside the popup closes it
+            LS.init_for_window(win)
+            LS.set_namespace(win, "wifi-menu")
+            LS.set_layer(win, LS.Layer.OVERLAY)
+            for edge in (LS.Edge.TOP, LS.Edge.BOTTOM, LS.Edge.LEFT, LS.Edge.RIGHT):
+                LS.set_anchor(win, edge, True)
+            LS.set_exclusive_zone(win, -1)
+            LS.set_keyboard_mode(win, LS.KeyboardMode.EXCLUSIVE)
+            popup_backdrop.attach(win)   # clicks on the other screens close it too
+
+            backdrop = Gtk.Box(hexpand=True, vexpand=True)
+            backdrop.add_css_class("backdrop")
+            click = Gtk.GestureClick()
+            click.connect("pressed", lambda *_: win.close())
+            backdrop.add_controller(click)
+
+            popup.set_halign(Gtk.Align.END)
+            popup.set_valign(Gtk.Align.START)
+            popup.set_margin_top(72)
+            popup.set_margin_end(130)
+            overlay = Gtk.Overlay()
+            overlay.set_child(backdrop)
+            overlay.add_overlay(popup)
+            win.set_child(overlay)
+        else:
+            # fallback: normal window that closes when it loses focus
+            win.set_child(popup)
+            win.connect("notify::is-active", lambda w, _p: None if w.is_active() else w.close())
+
+    def on_key(self, _ctl, keyval, _code, _state):
+        if keyval == Gdk.KEY_Escape:
+            if not self.panel.on_escape():
+                self.win.close()
+            return True
+        return False
 
 
 if __name__ == "__main__":

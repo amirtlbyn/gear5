@@ -1,9 +1,10 @@
 """
 LIVE test of the Settings app: it really switches the theme (to zoro and back to
-luffy-gear5), copies and removes a wallpaper for zoro, and turns animations off and
-on. Run it on your desktop, not in CI:
+luffy-gear5), copies and removes a wallpaper for zoro, turns animations off and on,
+opens every page, and turns Do Not Disturb on and off. Run it on your desktop, not in
+CI, with Settings closed (it needs the real session bus to reach swaync):
 
-    GTK_A11Y=none dbus-run-session -- python3 tests/live_settings.py
+    pkill -f waybar/scripts/settings.py; GTK_A11Y=none python3 tests/live_settings.py
 
 Needs ~/Pictures/1325389.png (any image works: change the path below).
 """
@@ -78,12 +79,31 @@ def s6():
     ).stdout
     check("animations back on", '"bool": true' in out)
     check("theme back to luffy-gear5", palette.current() == "luffy-gear5")
+    for key, _icon, _name in settings.PAGES:
+        app.show_page(key)
+    check("every panel page built", set(settings.PANELS) <= set(app.panels))
+    app.show_page("notifications")
+    app.dnd.set_active(True)
+    return False
+
+
+def s7():
+    dnd = subprocess.run(["swaync-client", "-D"], capture_output=True, text=True).stdout.strip()
+    check("Do Not Disturb on: " + dnd, dnd == "true")
+    app.dnd.set_active(False)
+    return False
+
+
+def s8():
+    dnd = subprocess.run(["swaync-client", "-D"], capture_output=True, text=True).stdout.strip()
+    check("Do Not Disturb off again: " + dnd, dnd == "false")
     app.quit()
     return False
 
 
 t = 1500
-for f, delay in ((s1, 1500), (s2, 7000), (s3, 6000), (s4, 6000), (s5, 5000), (s6, 7000)):
+for f, delay in ((s1, 1500), (s2, 7000), (s3, 6000), (s4, 6000), (s5, 5000), (s6, 7000), (s7, 2000),
+                 (s8, 2000)):
     GLib.timeout_add(t, f)
     t += delay
 app.run(sys.argv)

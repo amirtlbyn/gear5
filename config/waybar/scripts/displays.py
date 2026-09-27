@@ -213,7 +213,7 @@ LAYER_LIBS = [
     "/usr/lib/libgtk4-layer-shell.so.0",
     "/usr/lib/x86_64-linux-gnu/libgtk4-layer-shell.so.0",
 ]
-if not os.environ.get("DISPLAYS_PRELOADED"):
+if __name__ == "__main__" and not os.environ.get("DISPLAYS_PRELOADED"):
     lib = next((p for p in LAYER_LIBS if os.path.exists(p)), None)
     os.environ["DISPLAYS_PRELOADED"] = "1"
     if lib:
@@ -240,7 +240,9 @@ import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else palette.current()
+# imported by Settings (panel.py): no window, the theme in use
+THEME = sys.argv[1] if __name__ == "__main__" and len(sys.argv) > 1 and not sys.argv[1].startswith("-") \
+    else palette.current()
 WIDTH = 520
 MAP_H = 230
 REVERT_AFTER = 15
@@ -248,9 +250,10 @@ SCALES = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0]
 ROTATIONS = [(0, "Normal"), (1, "Portrait (90°)"), (2, "Upside down"), (3, "Portrait (270°)")]
 SNAP = 60          # logical pixels: closer than this to an edge = stick to it
 
-P = palette.load(THEME)
+ALIASES = {}
+P = palette.load(THEME, **ALIASES)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+STYLE = """
 window.displays { background: transparent; }
 .backdrop { background: alpha(black, 0.12); }
 .popup {
@@ -296,6 +299,7 @@ button.act:disabled { opacity: 0.4; }
 .confirm .count { color: @yellow; }
 .note { color: @grey; font-weight: normal; font-size: 11px; margin: 8px 4px 0 4px; }
 """
+CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
 
 I_LAPTOP, I_EXTEND, I_MIRROR, I_MONITOR = "\U000f0322", "\U000f0e27", "\U000f0e2b", "\U000f0379"
 
@@ -405,38 +409,25 @@ def extend(screens):
         x += round(w)
 
 
-class Displays(Gtk.Application):
-    def __init__(self):
-        super().__init__(application_id="io.local.displays")
-        self.win = None
+class DisplaysPanel:
+    """The screens, the map and the settings of the selected screen. Shown by the
+    popup below and by Settings (see panel.py for the host)."""
+
+    def __init__(self, host):
+        self.host = host
         self.screens = []
         self.before = None          # settings to go back to if you don't keep the new ones
         self.countdown = 0
         self.sel = None
         self.drag = None
-
-    # ----- lifecycle -----------------------------------------------------------
-    def do_activate(self):
-        if self.win is not None:
-            if self.win.get_visible():
-                self.win.close()
-            elif GLib.get_monotonic_time() - getattr(self, "closed_at", 0) > 400_000:
-                self.show_popup()
-            return
-        self.hold()
         self.build()
-        if "--hidden" not in sys.argv:
-            self.show_popup()
 
-    def show_popup(self):
+    def on_show(self):
         if not self.before:          # not in the middle of "keep these settings?"
             self.reload()
-        self.win.present()
 
-    def on_close(self, win):
-        self.closed_at = GLib.get_monotonic_time()
-        win.set_visible(False)
-        return True
+    def on_hide(self):
+        pass
 
     def reload(self):
         self.screens = read_screens()
@@ -451,16 +442,6 @@ class Displays(Gtk.Application):
 
     # ----- UI --------------------------------------------------------------------
     def build(self):
-        prov = Gtk.CssProvider()
-        prov.load_from_string(CSS)
-        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov,
-                                                  Gtk.STYLE_PROVIDER_PRIORITY_USER)
-        win = Gtk.ApplicationWindow(application=self, title="Displays")
-        win.add_css_class("displays")
-        win.set_decorated(False)
-        win.connect("close-request", self.on_close)
-        self.win = win
-
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         box.add_css_class("popup")
         box.set_size_request(WIDTH, -1)
@@ -554,33 +535,7 @@ class Displays(Gtk.Application):
         self.confirm.set_visible(False)
         box.append(self.confirm)
 
-        keys = Gtk.EventControllerKey()
-        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        keys.connect("key-pressed", self.on_key)
-        win.add_controller(keys)
-
-        if LS is not None and (not hasattr(LS, "is_supported") or LS.is_supported()):
-            LS.init_for_window(win)
-            LS.set_namespace(win, "displays")
-            LS.set_layer(win, LS.Layer.OVERLAY)
-            for edge in (LS.Edge.TOP, LS.Edge.BOTTOM, LS.Edge.LEFT, LS.Edge.RIGHT):
-                LS.set_anchor(win, edge, True)
-            LS.set_exclusive_zone(win, -1)
-            LS.set_keyboard_mode(win, LS.KeyboardMode.EXCLUSIVE)
-            popup_backdrop.attach(win)   # clicks on the other screens close it too
-            backdrop = Gtk.Box(hexpand=True, vexpand=True)
-            backdrop.add_css_class("backdrop")
-            click = Gtk.GestureClick()
-            click.connect("pressed", lambda *_: win.close())
-            backdrop.add_controller(click)
-            box.set_halign(Gtk.Align.CENTER)
-            box.set_valign(Gtk.Align.CENTER)
-            overlay = Gtk.Overlay()
-            overlay.set_child(backdrop)
-            overlay.add_overlay(box)
-            win.set_child(overlay)
-        else:
-            win.set_child(box)
+        self.root = box
 
     def refresh(self):
         n = len(self.screens)
@@ -832,9 +787,8 @@ class Displays(Gtk.Application):
         self.tick()
         GLib.timeout_add_seconds(1, self.tick)
         self.refresh()
-        # the screens just changed under the popup: show it again on the one you look at
-        self.win.set_visible(False)
-        GLib.timeout_add(900, lambda: (self.win.present(), False)[1])
+        if not self.host.embedded:
+            self.host.reshow()
 
     def tick(self):
         if not self.before:
@@ -862,13 +816,10 @@ class Displays(Gtk.Application):
         apply(self.screens)
         self.confirm.set_visible(False)
         GLib.timeout_add(700, lambda: (self.reload(), False)[1])
-        self.win.set_visible(False)
-        GLib.timeout_add(900, lambda: (self.win.present(), False)[1])
+        if not self.host.embedded:
+            self.host.reshow()
 
-    def on_key(self, _ctl, keyval, _code, _state):
-        if keyval == Gdk.KEY_Escape:
-            self.win.close()
-            return True
+    def on_key(self, keyval):
         if keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             if self.before:
                 self.keep()
@@ -883,6 +834,98 @@ class Displays(Gtk.Application):
             self.select(names[(i + step) % len(names)])
             return True
         return False
+
+
+class Displays(Gtk.Application):
+    """The popup (SUPER+P): the panel in a layer-shell window over the screen."""
+
+    embedded = False
+
+    def __init__(self):
+        super().__init__(application_id="io.local.displays")
+        self.win = None
+        self.panel = None
+
+    # ----- host (see panel.py) ---------------------------------------------------
+    def close(self):
+        self.win.close()
+
+    def is_shown(self):
+        return self.win is not None and self.win.get_visible()
+
+    def reshow(self):
+        """The screens just changed under the popup: show it again on the one you look at."""
+        self.win.set_visible(False)
+        GLib.timeout_add(900, lambda: (self.win.present(), False)[1])
+
+    # ----- lifecycle -----------------------------------------------------------
+    def do_activate(self):
+        if self.win is not None:
+            if self.win.get_visible():
+                self.win.close()
+            elif GLib.get_monotonic_time() - getattr(self, "closed_at", 0) > 400_000:
+                self.show_popup()
+            return
+        self.hold()
+        self.build()
+        if "--hidden" not in sys.argv:
+            self.show_popup()
+
+    def show_popup(self):
+        self.panel.on_show()
+        self.win.present()
+
+    def on_close(self, win):
+        self.closed_at = GLib.get_monotonic_time()
+        win.set_visible(False)
+        return True
+
+    def build(self):
+        prov = Gtk.CssProvider()
+        prov.load_from_string(CSS)
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), prov,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_USER)
+        win = Gtk.ApplicationWindow(application=self, title="Displays")
+        win.add_css_class("displays")
+        win.set_decorated(False)
+        win.connect("close-request", self.on_close)
+        self.win = win
+        self.panel = DisplaysPanel(self)
+        box = self.panel.root
+
+        keys = Gtk.EventControllerKey()
+        keys.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        keys.connect("key-pressed", self.on_key)
+        win.add_controller(keys)
+
+        if LS is not None and (not hasattr(LS, "is_supported") or LS.is_supported()):
+            LS.init_for_window(win)
+            LS.set_namespace(win, "displays")
+            LS.set_layer(win, LS.Layer.OVERLAY)
+            for edge in (LS.Edge.TOP, LS.Edge.BOTTOM, LS.Edge.LEFT, LS.Edge.RIGHT):
+                LS.set_anchor(win, edge, True)
+            LS.set_exclusive_zone(win, -1)
+            LS.set_keyboard_mode(win, LS.KeyboardMode.EXCLUSIVE)
+            popup_backdrop.attach(win)   # clicks on the other screens close it too
+            backdrop = Gtk.Box(hexpand=True, vexpand=True)
+            backdrop.add_css_class("backdrop")
+            click = Gtk.GestureClick()
+            click.connect("pressed", lambda *_: win.close())
+            backdrop.add_controller(click)
+            box.set_halign(Gtk.Align.CENTER)
+            box.set_valign(Gtk.Align.CENTER)
+            overlay = Gtk.Overlay()
+            overlay.set_child(backdrop)
+            overlay.add_overlay(box)
+            win.set_child(overlay)
+        else:
+            win.set_child(box)
+
+    def on_key(self, _ctl, keyval, _code, _state):
+        if keyval == Gdk.KEY_Escape:
+            self.win.close()
+            return True
+        return self.panel.on_key(keyval)
 
 
 if __name__ == "__main__":

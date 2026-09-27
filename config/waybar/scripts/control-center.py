@@ -26,7 +26,7 @@ LAYER_LIBS = [
     "/usr/lib/libgtk4-layer-shell.so.0",
     "/usr/lib/x86_64-linux-gnu/libgtk4-layer-shell.so.0",
 ]
-if not os.environ.get("CONTROL_CENTER_PRELOADED"):
+if __name__ == "__main__" and not os.environ.get("CONTROL_CENTER_PRELOADED"):
     lib = next((p for p in LAYER_LIBS if os.path.exists(p)), None)
     os.environ["CONTROL_CENTER_PRELOADED"] = "1"
     if lib:
@@ -50,7 +50,8 @@ import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
 
-THEME = sys.argv[1] if len(sys.argv) > 1 else palette.current()
+# imported by Settings (panel.py): no window, the theme in use
+THEME = sys.argv[1] if __name__ == "__main__" and len(sys.argv) > 1 else palette.current()
 WIDTH = 440
 HERE = os.path.dirname(os.path.abspath(__file__))
 IDLE = os.path.expanduser("~/.config/hypr/scripts/idle.sh")
@@ -58,9 +59,10 @@ IDLE_PREV = os.path.expanduser("~/.config/hypr/idle-state.before-awake")
 PP = ["org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles",
       "org.freedesktop.UPower.PowerProfiles", "ActiveProfile"]
 
-P = palette.load(THEME)
+ALIASES = {}
+P = palette.load(THEME, **ALIASES)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+STYLE = """
 window.control-center { background: transparent; }
 .backdrop { background: transparent; }
 
@@ -177,7 +179,12 @@ button.icon-btn.scanning { background: @blue; color: @on_accent; }
 button.footer { background: @bg1; color: @fg; margin-top: 12px; padding: 8px 10px; border-radius: 14px; }
 button.footer:hover { background: @bg2; }
 .popup spinner { color: @blue; }
+.bt-head { margin-bottom: 4px; }
+.popup switch { background: @bg3; border: none; border-radius: 14px; box-shadow: none; }
+.popup switch:checked { background: @green; }
+.popup switch slider { background: @fg; border: none; border-radius: 12px; box-shadow: none; }
 """
+CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
 
 I_WIFI, I_WIFI_OFF = "\U000f05a9", "\U000f05aa"
 I_BT, I_BT_OFF, I_BT_ON = "\U000f00af", "\U000f00b2", "\U000f00b1"
@@ -516,23 +523,285 @@ class DevRow(Gtk.ListBoxRow):
         self.revealer.set_reveal_child(True)
 
 
+class BluetoothPanel:
+    """Paired devices (connect, disconnect, forget) and Add device (scan and pair).
+    Part of the quick settings popup below, and a page of Settings (see panel.py for
+    the host), where it also has a title and an on/off switch and reads the state
+    itself; in the popup, the popup reads everything at once (host.refresh)."""
+
+    def __init__(self, host):
+        self.host = host
+        self.busy = False
+        self.scanner = None
+        self.open_mac = None
+        self.dev_key = None
+        self.updating_switch = False
+        self.build()
+        if host.embedded:
+            GLib.timeout_add_seconds(3, self._tick)
+
+    def build(self):
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        if self.host.embedded:
+            root.add_css_class("popup")
+            title = Gtk.Box(spacing=10)
+            title.add_css_class("bt-head")
+            title.append(label(f"{I_BT}  Bluetooth", "title", xalign=0, hexpand=True))
+            self.switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+            self.switch.connect("state-set", self.on_switch)
+            title.append(self.switch)
+            root.append(title)
+
+        head = Gtk.Box(spacing=8, margin_top=6)
+        head.append(label("DEVICES" if self.host.embedded else "BLUETOOTH", "section", xalign=0, hexpand=True))
+        self.spinner = Gtk.Spinner(valign=Gtk.Align.CENTER)
+        head.append(self.spinner)
+        self.scan_btn = Gtk.Button(label=f"{I_PLUS}  Add device", valign=Gtk.Align.CENTER)
+        self.scan_btn.add_css_class("icon-btn")
+        self.scan_btn.connect("clicked", lambda *_: self.toggle_scan())
+        head.append(self.scan_btn)
+        root.append(head)
+
+        self.status = label(css="status", xalign=0, wrap=True)
+        self.status.set_visible(False)
+        root.append(self.status)
+
+        self.devs = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.devs.add_css_class("devs")
+        self.devs.connect("row-activated", self.on_dev)
+        self.dev_placeholder = label("No devices yet — tap Add device", "placeholder")
+        self.devs.set_placeholder(self.dev_placeholder)
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
+                                    propagate_natural_height=True, max_content_height=340)
+        scroll.set_child(self.devs)
+        root.append(scroll)
+        self.root = root
+
+    def on_show(self):
+        self.set_status("")
+        self.refresh()
+
+    def on_hide(self):
+        self.stop_scan()
+        self.open_mac = None
+        self.dev_key = None
+
+    def stop(self):
+        self.stop_scan()
+
+    def _tick(self):
+        if self.host.is_shown() and not self.busy:
+            self.refresh()
+        return True
+
+    def refresh(self):
+        if not self.host.embedded:
+            self.host.refresh()   # the popup reads everything at once
+            return
+        scanning = self.scanner is not None
+        run_bg(lambda: read_bluetooth(scanning), self.apply)
+
+    def set_status(self, text="", error=False):
+        self.status.set_label(text)
+        self.status.set_visible(bool(text))
+        (self.status.add_css_class if error else self.status.remove_css_class)("error")
+
+    def apply(self, bt):
+        if self.host.embedded:
+            self.updating_switch = True
+            self.switch.set_active(bt["powered"])
+            self.switch.set_state(bt["powered"])
+            self.switch.set_sensitive(bt["present"])
+            self.updating_switch = False
+        self.scan_btn.set_sensitive(bt["powered"])
+        self.apply_devices(bt)
+
+    def on_switch(self, _sw, state):
+        if not self.updating_switch:
+            self.set_power(state)
+        return False
+
+    def set_power(self, on):
+        def work():
+            if on:
+                run("rfkill", "unblock", "bluetooth", timeout=5)
+            return run("bluetoothctl", "power", "on" if on else "off", timeout=10)
+        if not on:
+            self.stop_scan()
+        run_bg(work, lambda _r: self.refresh())
+
+    def apply_devices(self, bt):
+        key = repr((bt["powered"], bt["paired"], bt["found"], self.scanner is not None))
+        if key == self.dev_key:        # nothing changed: keep open rows as they are
+            return
+        self.dev_key = key
+        while (child := self.devs.get_first_child()) is not None:
+            self.devs.remove(child)
+        if not bt["present"]:
+            self.dev_placeholder.set_label("No Bluetooth adapter found")
+            return
+        if not bt["powered"]:
+            self.dev_placeholder.set_label("Bluetooth is off")
+            return
+        self.dev_placeholder.set_label("No devices yet — tap Add device")
+        for d in bt["paired"]:
+            row = DevRow(d)
+            self.devs.append(row)
+            if d["mac"] == self.open_mac:
+                row.show_actions(self)
+        if self.scanner is not None:
+            if not bt["found"]:
+                self.devs.append(self.found_hint())
+            for d in bt["found"]:
+                self.devs.append(DevRow(d, new=True))
+
+    @staticmethod
+    def found_hint():
+        row = Gtk.ListBoxRow(activatable=False, selectable=False)
+        row.set_child(label("Searching… put the device in pairing mode", "placeholder", xalign=0))
+        return row
+
+    def toggle_scan(self):
+        if self.scanner is not None:
+            self.stop_scan()
+            self.refresh()
+            return
+        try:
+            run("bluetoothctl", "pairable", "on", timeout=3)
+            self.scanner = subprocess.Popen(["bluetoothctl", "--timeout", "60", "scan", "on"],
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            self.set_status("Couldn't start searching", error=True)
+            return
+        self.scan_btn.set_label(f"{I_CHECK}  Done")
+        self.scan_btn.add_css_class("scanning")
+        self.spinner.set_spinning(True)
+        self.set_status("")
+        GLib.timeout_add_seconds(60, lambda: (self.stop_scan(), self.refresh(), False)[2])
+        self.dev_key = None
+        self.refresh()
+
+    def stop_scan(self):
+        if self.scanner is not None:
+            self.scanner.terminate()
+            self.scanner = None
+        self.scan_btn.set_label(f"{I_PLUS}  Add device")
+        self.scan_btn.remove_css_class("scanning")
+        self.spinner.set_spinning(self.busy)
+        self.dev_key = None
+
+    def on_dev(self, _lb, row):
+        if not isinstance(row, DevRow) or self.busy:
+            return
+        if row.new:
+            self.pair(row.dev)
+            return
+        if row.revealer.get_reveal_child():
+            row.revealer.set_reveal_child(False)
+            self.open_mac = None
+            return
+        child = self.devs.get_first_child()
+        while child is not None:
+            if isinstance(child, DevRow):
+                child.revealer.set_reveal_child(False)
+            child = child.get_next_sibling()
+        self.open_mac = row.dev["mac"]
+        row.show_actions(self)
+
+    def set_busy(self, busy):
+        self.busy = busy
+        self.spinner.set_spinning(busy or self.scanner is not None)
+
+    def bt_action(self, action, dev):
+        words = {"connect": ("Connecting to", "Connected"), "disconnect": ("Disconnecting", "Disconnected"),
+                 "remove": ("Forgetting", "Forgot")}[action]
+        self.set_busy(True)
+        self.set_status(f"{words[0]} {dev['name']}…")
+
+        def done(res):
+            code, out, err = res
+            self.set_busy(False)
+            ok = code == 0 and not re.search(r"Failed|Error|not available", out + err)
+            if ok:
+                self.set_status(f"{words[1]} {dev['name']}")
+                self.open_mac = None
+            else:
+                msg = (re.findall(r"(?:Failed|Error)[^\n]*", out + err) or ["Didn't work — is it turned on and near?"])[-1]
+                self.set_status(msg, error=True)
+            self.dev_key = None
+            self.refresh()
+        run_bg(lambda: run("bluetoothctl", "--timeout", "20", action, dev["mac"], timeout=30), done)
+
+    def pair(self, dev):
+        """Pair, trust and connect. Keyboards may show a code to type: it appears in the status line."""
+        self.set_busy(True)
+        self.set_status(f"Pairing with {dev['name']}…")
+        mac, name = dev["mac"], dev["name"]
+
+        def show(text, error=False):
+            GLib.idle_add(lambda: (self.set_status(text, error), False)[1])
+
+        def work():
+            try:
+                p = subprocess.Popen(["bluetoothctl", "--timeout", "40", "pair", mac], stdin=subprocess.PIPE,
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            except OSError as e:
+                return False, str(e)
+            out = []
+            for line in p.stdout:
+                out.append(line)
+                code = re.search(r"Passkey:\s*(\d+)", line)
+                if code:
+                    show(f"Type {code.group(1)} on {name}, then press Enter")
+                if re.search(r"Confirm passkey|Authorize service|\(yes/no\)", line):
+                    p.stdin.write("yes\n")
+                    p.stdin.flush()
+            p.wait()
+            text = "".join(out)
+            if "Pairing successful" not in text and "AlreadyExists" not in text:
+                err = re.findall(r"Failed to pair:?[^\n]*", text)
+                return False, err[-1] if err else "Pairing didn't finish"
+            run("bluetoothctl", "trust", mac, timeout=10)
+            _, cout, _ = run("bluetoothctl", "--timeout", "20", "connect", mac, timeout=30)
+            return True, "Connected" if "Connection successful" in cout else "Paired"
+
+        def done(res):
+            ok, msg = res
+            self.set_busy(False)
+            if ok:
+                self.stop_scan()
+                self.set_status(f"{msg}: {name}")
+                spawn("notify-send", "-a", "Bluetooth", "-i", "bluetooth", f"{msg}", name)
+            else:
+                self.set_status(msg, error=True)
+            self.dev_key = None
+            self.refresh()
+        run_bg(work, done)
+
+
 class ControlCenter(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="io.local.controlcenter")
         self.win = None
         self.st = None
-        self.busy = False
-        self.scanner = None
-        self.open_mac = None
+        self.bt = None
         self.ddc_pending = {}
         self.ddc_busy = set()
         self.ddc_lock = threading.Lock()
         self.screens_read = False
         self.updating = False
-        self.dev_key = None
         self.bright_open = False
         self.screen_scales = []
         self.start_hidden = "--hidden" in sys.argv
+
+    # ----- host of the Bluetooth panel (see panel.py) ------------------------------
+    embedded = False
+
+    def close(self):
+        self.win.close()
+
+    def is_shown(self):
+        return self.win is not None and self.win.get_visible()
 
     # every later launch (clicking the bar box) opens or closes the same window
     def do_activate(self):
@@ -552,15 +821,12 @@ class ControlCenter(Gtk.Application):
 
     def show_popup(self):
         self.place()
-        self.set_status("")
         self.screens_read = False    # screens may have changed since last time
         self.win.present()
-        self.refresh()
+        self.bt.on_show()            # clears its status line and refreshes everything
 
     def on_close(self, win):
-        self.stop_scan()
-        self.open_mac = None
-        self.dev_key = None
+        self.bt.on_hide()
         self.closed_at = GLib.get_monotonic_time()
         win.set_visible(False)   # hide, don't destroy
         return True
@@ -581,7 +847,8 @@ class ControlCenter(Gtk.Application):
             popup.set_margin_end(100)
 
     def do_shutdown(self):
-        self.stop_scan()
+        if self.bt:
+            self.bt.stop()
         Gtk.Application.do_shutdown(self)
 
     @staticmethod
@@ -662,29 +929,8 @@ class ControlCenter(Gtk.Application):
         popup.append(self.bright)
 
         # bluetooth
-        head = Gtk.Box(spacing=8, margin_top=6)
-        head.append(label("BLUETOOTH", "section", xalign=0, hexpand=True))
-        self.spinner = Gtk.Spinner(valign=Gtk.Align.CENTER)
-        head.append(self.spinner)
-        self.scan_btn = Gtk.Button(label=f"{I_PLUS}  Add device", valign=Gtk.Align.CENTER)
-        self.scan_btn.add_css_class("icon-btn")
-        self.scan_btn.connect("clicked", lambda *_: self.toggle_scan())
-        head.append(self.scan_btn)
-        popup.append(head)
-
-        self.status = label(css="status", xalign=0, wrap=True)
-        self.status.set_visible(False)
-        popup.append(self.status)
-
-        self.devs = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        self.devs.add_css_class("devs")
-        self.devs.connect("row-activated", self.on_dev)
-        self.dev_placeholder = label("No devices yet — tap Add device", "placeholder")
-        self.devs.set_placeholder(self.dev_placeholder)
-        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
-                                    propagate_natural_height=True, max_content_height=340)
-        scroll.set_child(self.devs)
-        popup.append(scroll)
+        self.bt = BluetoothPanel(self)
+        popup.append(self.bt.root)
 
         footer = Gtk.Box(spacing=8, homogeneous=True)
         for text_, action in ((f"{I_SETTINGS}   Settings", self.open_settings),
@@ -729,20 +975,15 @@ class ControlCenter(Gtk.Application):
 
     # ----- state -------------------------------------------------------------
     def _tick(self):
-        if self.win.get_visible() and not self.busy:
+        if self.win.get_visible() and not self.bt.busy:
             self.refresh()
         return True
 
     def refresh(self):
-        scanning = self.scanner is not None
+        scanning = self.bt.scanner is not None
         screens = not self.screens_read   # talking to monitors is slow: once per opening
         self.screens_read = True
         run_bg(lambda: read_state(scanning, screens), self.apply)
-
-    def set_status(self, text="", error=False):
-        self.status.set_label(text)
-        self.status.set_visible(bool(text))
-        (self.status.add_css_class if error else self.status.remove_css_class)("error")
 
     def apply(self, st):
         if self.win is None:
@@ -784,39 +1025,7 @@ class ControlCenter(Gtk.Application):
         if st["screens"] is not None:
             self.apply_screens(st["screens"])
 
-        self.scan_btn.set_sensitive(bt["powered"])
-        self.apply_devices(bt)
-
-    def apply_devices(self, bt):
-        key = repr((bt["powered"], bt["paired"], bt["found"], self.scanner is not None))
-        if key == self.dev_key:        # nothing changed: keep open rows as they are
-            return
-        self.dev_key = key
-        while (child := self.devs.get_first_child()) is not None:
-            self.devs.remove(child)
-        if not bt["present"]:
-            self.dev_placeholder.set_label("No Bluetooth adapter found")
-            return
-        if not bt["powered"]:
-            self.dev_placeholder.set_label("Bluetooth is off")
-            return
-        self.dev_placeholder.set_label("No devices yet — tap Add device")
-        for d in bt["paired"]:
-            row = DevRow(d)
-            self.devs.append(row)
-            if d["mac"] == self.open_mac:
-                row.show_actions(self)
-        if self.scanner is not None:
-            if not bt["found"]:
-                self.devs.append(self.found_hint())
-            for d in bt["found"]:
-                self.devs.append(DevRow(d, new=True))
-
-    @staticmethod
-    def found_hint():
-        row = Gtk.ListBoxRow(activatable=False, selectable=False)
-        row.set_child(label("Searching… put the device in pairing mode", "placeholder", xalign=0))
-        return row
+        self.bt.apply(bt)
 
     # ----- actions -----------------------------------------------------------
     def set_profile(self, key):
@@ -825,7 +1034,7 @@ class ControlCenter(Gtk.Application):
 
         def done(res):
             if res[0] != 0:
-                self.set_status(res[2].strip() or "Couldn't change power mode", error=True)
+                self.bt.set_status(res[2].strip() or "Couldn't change power mode", error=True)
             self.refresh()
         for k, btn in self.profile_btns.items():
             (btn.add_css_class if k == key else btn.remove_css_class)("active")
@@ -836,15 +1045,7 @@ class ControlCenter(Gtk.Application):
         self.win.close()
 
     def toggle_bt(self):
-        on = not (self.st and self.st["bt"]["powered"])
-
-        def work():
-            if on:
-                run("rfkill", "unblock", "bluetooth", timeout=5)
-            return run("bluetoothctl", "power", "on" if on else "off", timeout=10)
-        if not on:
-            self.stop_scan()
-        run_bg(work, lambda _r: self.refresh())
+        self.bt.set_power(not (self.st and self.st["bt"]["powered"]))
 
     def toggle_dnd(self):
         on = not (self.st and self.st["dnd"])
@@ -1013,125 +1214,6 @@ class ControlCenter(Gtk.Application):
                         return
                 run("ddcutil", "--bus", bus, "--noverify", "setvcp", "10", str(target), timeout=10)
         threading.Thread(target=work, daemon=True).start()
-
-    # bluetooth
-    def toggle_scan(self):
-        if self.scanner is not None:
-            self.stop_scan()
-            self.refresh()
-            return
-        try:
-            run("bluetoothctl", "pairable", "on", timeout=3)
-            self.scanner = subprocess.Popen(["bluetoothctl", "--timeout", "60", "scan", "on"],
-                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError:
-            self.set_status("Couldn't start searching", error=True)
-            return
-        self.scan_btn.set_label(f"{I_CHECK}  Done")
-        self.scan_btn.add_css_class("scanning")
-        self.spinner.set_spinning(True)
-        self.set_status("")
-        GLib.timeout_add_seconds(60, lambda: (self.stop_scan(), self.refresh(), False)[2])
-        self.dev_key = None
-        self.refresh()
-
-    def stop_scan(self):
-        if self.scanner is not None:
-            self.scanner.terminate()
-            self.scanner = None
-        if self.win is not None:
-            self.scan_btn.set_label(f"{I_PLUS}  Add device")
-            self.scan_btn.remove_css_class("scanning")
-            self.spinner.set_spinning(self.busy)
-            self.dev_key = None
-
-    def on_dev(self, _lb, row):
-        if not isinstance(row, DevRow) or self.busy:
-            return
-        if row.new:
-            self.pair(row.dev)
-            return
-        if row.revealer.get_reveal_child():
-            row.revealer.set_reveal_child(False)
-            self.open_mac = None
-            return
-        child = self.devs.get_first_child()
-        while child is not None:
-            if isinstance(child, DevRow):
-                child.revealer.set_reveal_child(False)
-            child = child.get_next_sibling()
-        self.open_mac = row.dev["mac"]
-        row.show_actions(self)
-
-    def set_busy(self, busy):
-        self.busy = busy
-        self.spinner.set_spinning(busy or self.scanner is not None)
-
-    def bt_action(self, action, dev):
-        words = {"connect": ("Connecting to", "Connected"), "disconnect": ("Disconnecting", "Disconnected"),
-                 "remove": ("Forgetting", "Forgot")}[action]
-        self.set_busy(True)
-        self.set_status(f"{words[0]} {dev['name']}…")
-
-        def done(res):
-            code, out, err = res
-            self.set_busy(False)
-            ok = code == 0 and not re.search(r"Failed|Error|not available", out + err)
-            if ok:
-                self.set_status(f"{words[1]} {dev['name']}")
-                self.open_mac = None
-            else:
-                msg = (re.findall(r"(?:Failed|Error)[^\n]*", out + err) or ["Didn't work — is it turned on and near?"])[-1]
-                self.set_status(msg, error=True)
-            self.dev_key = None
-            self.refresh()
-        run_bg(lambda: run("bluetoothctl", "--timeout", "20", action, dev["mac"], timeout=30), done)
-
-    def pair(self, dev):
-        """Pair, trust and connect. Keyboards may show a code to type: it appears in the status line."""
-        self.set_busy(True)
-        self.set_status(f"Pairing with {dev['name']}…")
-        mac, name = dev["mac"], dev["name"]
-
-        def show(text, error=False):
-            GLib.idle_add(lambda: (self.set_status(text, error), False)[1])
-
-        def work():
-            try:
-                p = subprocess.Popen(["bluetoothctl", "--timeout", "40", "pair", mac], stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-            except OSError as e:
-                return False, str(e)
-            out = []
-            for line in p.stdout:
-                out.append(line)
-                code = re.search(r"Passkey:\s*(\d+)", line)
-                if code:
-                    show(f"Type {code.group(1)} on {name}, then press Enter")
-                if re.search(r"Confirm passkey|Authorize service|\(yes/no\)", line):
-                    p.stdin.write("yes\n")
-                    p.stdin.flush()
-            p.wait()
-            text = "".join(out)
-            if "Pairing successful" not in text and "AlreadyExists" not in text:
-                err = re.findall(r"Failed to pair:?[^\n]*", text)
-                return False, err[-1] if err else "Pairing didn't finish"
-            run("bluetoothctl", "trust", mac, timeout=10)
-            _, cout, _ = run("bluetoothctl", "--timeout", "20", "connect", mac, timeout=30)
-            return True, "Connected" if "Connection successful" in cout else "Paired"
-
-        def done(res):
-            ok, msg = res
-            self.set_busy(False)
-            if ok:
-                self.stop_scan()
-                self.set_status(f"{msg}: {name}")
-                spawn("notify-send", "-a", "Bluetooth", "-i", "bluetooth", f"{msg}", name)
-            else:
-                self.set_status(msg, error=True)
-            self.dev_key = None
-            self.refresh()
-        run_bg(work, done)
 
     # ----- misc --------------------------------------------------------------
     def on_key(self, _ctl, keyval, _code, _state):
