@@ -4,22 +4,7 @@ import os
 
 import palette
 from conftest import THEMES
-
-# (text, background, minimum): each pair appears on screen as text on a background
-PAIRS = [
-    ("fg", "bg0", 7.0),  # popup and bar-box text
-    ("bg0", "fg", 7.0),  # text on the bar itself
-    ("green", "bg0", 4.5),  # accent text: highlights, the other-timezone clock
-    ("on_accent", "green", 4.5),  # selected chips and buttons
-    ("bg0", "green", 4.5),  # the launcher button
-    ("bg0", "blue", 4.5),  # the active desk
-    ("bg0", "red", 4.5),  # the power button
-    ("grey", "bg0", 3.0),  # dim text: hints, section titles
-    ("on_accent", "aqua", 4.5),  # calculator and control-center tiles (aqua-to-green gradient)
-    ("on_accent", "purple", 4.5),  # calculator toggles that are on
-    ("on_accent", "yellow", 4.5),  # the control center's open chevron
-    ("yellow", "bg0", 4.5),  # the bar's "stay awake" sign
-]
+from theme_maker import PAIRS
 
 
 def luminance(color):

@@ -131,7 +131,9 @@ window#waybar {
   margin-top: 7px;
   margin-bottom: 12px;
   border-radius: 10px;
-  border-bottom: 5px solid @edge_deep;
+  /* the tray's 3D edge, drawn inside it: the desk labels are clipped to the tray,
+     so the active one can't hang below it with a negative margin */
+  box-shadow: inset 0 -5px @edge_deep;
   padding-left: 10px;
   padding-right: 2px;
 }
@@ -146,8 +148,7 @@ window#waybar {
 #custom-desk.active {
   background-color: @blue;
   color: @bg0;
-  margin-bottom: -5px;
-  border-bottom: 5px solid @blue_edge;
+  border-bottom: 5px solid @blue_edge;   /* covers the tray's edge below it */
 }
 
 #custom-clock.other { color: @green; }   /* showing another timezone */

@@ -2,8 +2,9 @@
 
 One file per theme: `<id>.json`. Pick one with the Settings app, or run
 `~/.config/waybar/scripts/theme.py apply <id>`. That writes the files below and
-reloads Hyprland, so the bar, the popups, notifications, window borders, the lock
-screen and the wallpaper all change together:
+reloads Hyprland: the bar recolors in place (Hyprland restarts it only if it is
+not already running), and the popups, notifications, window borders, the lock
+screen and the wallpaper all switch too:
 
 - `~/.config/hypr/themes/current` — the id of the theme in use
 - `~/.config/hypr/themes/current.lua` — what `hyprland.lua` reads
@@ -33,5 +34,6 @@ from it. The names are roles, not hues: in a pink theme, `green` can be pink.
 
 ## Wallpaper
 
-`~/.config/hypr/wallpapers/<id>.png` (or `.jpg`, `.jpeg`, `.webp`). With no file, the
-desktop is filled with the theme's `bg0` color.
+One picture for every theme: `~/.config/hypr/wallpapers/wallpaper.png` (or `.jpg`,
+`.jpeg`, `.webp`), set from Settings → Wallpaper. With no file, the desktop is filled
+with the current theme's `bg0` color.

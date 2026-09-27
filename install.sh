@@ -63,8 +63,8 @@ FEDORA_PKGS=(
   waybar swaybg SwayNotificationCenter kitty nemo
   python3-gobject gtk4 gtk4-layer-shell
   qalculate cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
-  pulseaudio-utils bluez NetworkManager upower ddcutil libnotify jq plocate localsearch
-  mate-polkit xdg-utils google-noto-color-emoji-fonts vazirmatn-fonts
+  pulseaudio-utils bluez NetworkManager upower ddcutil libnotify jq socat plocate localsearch
+  mate-polkit xdg-utils google-noto-color-emoji-fonts vazirmatn-fonts hyprpicker
   git curl tar
 )
 ARCH_PKGS=(
@@ -72,8 +72,8 @@ ARCH_PKGS=(
   waybar swaybg swaync kitty nemo
   python-gobject gtk4 gtk4-layer-shell
   libqalculate cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
-  libpulse bluez bluez-utils networkmanager upower power-profiles-daemon ddcutil libnotify jq
-  plocate localsearch mate-polkit xdg-utils ttf-jetbrains-mono-nerd noto-fonts-emoji
+  libpulse bluez bluez-utils networkmanager upower power-profiles-daemon ddcutil libnotify jq socat
+  plocate localsearch mate-polkit xdg-utils ttf-jetbrains-mono-nerd noto-fonts-emoji hyprpicker
   git curl unzip
 )
 UBUNTU_PKGS=(
@@ -81,8 +81,8 @@ UBUNTU_PKGS=(
   waybar swaybg sway-notification-center kitty nemo
   python3-gi gir1.2-gtk-4.0 gir1.2-gtk4layershell-1.0 libgtk4-layer-shell0
   qalc cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
-  pulseaudio-utils bluez network-manager upower power-profiles-daemon ddcutil libnotify-bin jq
-  plocate localsearch mate-polkit xdg-utils fonts-noto-color-emoji fonts-vazirmatn
+  pulseaudio-utils bluez network-manager upower power-profiles-daemon ddcutil libnotify-bin jq socat
+  plocate localsearch mate-polkit xdg-utils fonts-noto-color-emoji fonts-vazirmatn hyprpicker
   git curl tar
 )
 

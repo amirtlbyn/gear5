@@ -79,13 +79,13 @@ def test_hyprland_values_unchanged(tmp_path):
 def test_write_all_writes_every_generated_file(tmp_path):
     shutil.copytree(THEMES, tmp_path / "hypr" / "themes")
     (tmp_path / "hypr" / "wallpapers").mkdir()
-    (tmp_path / "hypr" / "wallpapers" / "summer-night.png").write_bytes(b"x")
+    (tmp_path / "hypr" / "wallpapers" / "wallpaper.png").write_bytes(b"x")
     t = theme.write_all("summer-night", str(tmp_path))
     assert t["id"] == "summer-night"
     assert (tmp_path / "hypr" / "themes" / "current").read_text() == "summer-night\n"
-    assert "summer-night.png" in (tmp_path / "hypr" / "themes" / "current.lua").read_text()
+    assert "wallpaper.png" in (tmp_path / "hypr" / "themes" / "current.lua").read_text()
     lock = (tmp_path / "hypr" / "hyprlock-colors.conf").read_text()
-    assert "$fg = rgb(d3c6aa)" in lock and "summer-night.png" in lock
+    assert "$fg = rgb(d3c6aa)" in lock and "wallpaper.png" in lock
     assert "@define-color bg0 #2d353b;" in (tmp_path / "waybar" / "colors" / "current.css").read_text()
 
 

@@ -71,12 +71,26 @@ def write(path, text):
     os.replace(path + ".tmp", path)
 
 
+def touch(path):
+    """Write a file again in place, with the same content. Waybar's
+    reload_style_on_change only reacts to an in-place write of its style file:
+    not to a new mtime, and not to the @imported colors file being replaced."""
+    try:
+        with open(path) as f:
+            text = f.read()
+        with open(path, "w") as f:
+            f.write(text)
+    except OSError:
+        pass  # not installed yet: nothing to nudge
+
+
 def write_all(theme_id, config=CONFIG):
     """Write every generated file for this theme. Returns the theme actually used."""
     themes = os.path.join(config, "hypr", "themes")
     t = palette.theme(theme_id, themes)
-    wall = palette.wallpaper(t["id"], os.path.join(config, "hypr", "wallpapers"))
+    wall = palette.wallpaper(os.path.join(config, "hypr", "wallpapers"), themes)
     write(os.path.join(config, "waybar", "colors", "current.css"), waybar_css(t))
+    touch(os.path.join(config, "waybar", "bar", "style.css"))  # Waybar reloads its CSS, no restart
     write(os.path.join(themes, "current.lua"), hypr_lua(t, wall))
     write(os.path.join(config, "hypr", "hyprlock-colors.conf"), hyprlock_conf(t, wall))
     write(os.path.join(themes, "current"), t["id"] + "\n")  # last: the others are ready

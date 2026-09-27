@@ -4,3 +4,6 @@ __pycache__/
 *.bak
 # wallpapers belong to their artists: never commit them (see README, "Characters & wallpapers")
 config/hypr/wallpapers/
+
+# local Claude Code specs and logs
+.claude/

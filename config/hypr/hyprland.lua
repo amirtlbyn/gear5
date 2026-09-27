@@ -34,14 +34,43 @@ hl.env("GTK_THEME", theme.gtk)
 -- hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
 
 ---------------- Autostart ----------------
-local function startBarAndWallpaper()
-    -- no wallpaper for this theme: fill the desktop with its background color
+-- the wallpaper picture or color last put on screen, so a reload for another reason
+-- (lid, SUPER+SHIFT+R) does not restart swaybg when the wallpaper did not change
+local WALLPAPER_STATE_FILE = (os.getenv("XDG_RUNTIME_DIR") or "/tmp") .. "/hypr-wallpaper-state"
+
+local function wallpaperState()
+    return theme.wallpaper ~= "" and theme.wallpaper or ("color:" .. theme.bg0)
+end
+
+local function readFile(path)
+    local f = io.open(path, "r")
+    if not f then return nil end
+    local s = f:read("*a")
+    f:close()
+    return s
+end
+
+local function writeFile(path, s)
+    local f = io.open(path, "w")
+    if f then
+        f:write(s)
+        f:close()
+    end
+end
+
+-- no wallpaper for this theme: fill the desktop with its background color
+local function setWallpaper()
     if theme.wallpaper ~= "" then
         local path = theme.wallpaper:gsub("'", "'\\''")      -- a ' in the path stays part of it
         hl.exec_cmd("pkill swaybg; swaybg -i '" .. path .. "' -m fill")
     else
         hl.exec_cmd("pkill swaybg; swaybg -c '" .. theme.bg0 .. "'")
     end
+    writeFile(WALLPAPER_STATE_FILE, wallpaperState())
+end
+
+local function startBarAndWallpaper()
+    setWallpaper()
     -- bar.sh restarts the bar whenever it quits (screens coming and going can do that)
     hl.exec_cmd("~/.config/hypr/scripts/bar.sh")
     -- sound + quick settings popups wait hidden in the background, so they open instantly
@@ -57,9 +86,17 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("swaync")
     startBarAndWallpaper()
 end)
--- restart bar + wallpaper when you change the theme and save
+-- a theme switch or any other config reload: recolor the bar in place (Waybar
+-- watches its own CSS, see bar/config's reload_style_on_change) instead of
+-- restarting it, restart swaybg only when the wallpaper actually changed, and
+-- start the bar only if it is not already running (e.g. it quit, or this is
+-- the first reload after hyprland.start already started it)
 hl.on("config.reloaded", function()
-    startBarAndWallpaper()
+    if readFile(WALLPAPER_STATE_FILE) ~= wallpaperState() then
+        setWallpaper()
+    end
+    hl.exec_cmd("pidof waybar >/dev/null || ~/.config/hypr/scripts/bar.sh")
+    hl.exec_cmd("~/.config/waybar/scripts/popup.sh --restart " .. theme.id)
     -- the monitor lines above just ran again: put back the layout saved for these screens
     hl.exec_cmd("~/.config/waybar/scripts/displays.py --auto")
 end)
