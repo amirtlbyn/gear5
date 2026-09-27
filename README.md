@@ -9,6 +9,8 @@ Python + GTK4, a "one desk across all monitors" workflow, and a one-command inst
 for **Fedora, Arch, Ubuntu and Kubuntu**. The logo in the bar's left corner follows
 your distro automatically.
 
+[Screenshots of every app](docs/SCREENSHOTS.md)
+
 ## Features
 
 | Keys | What |
@@ -18,7 +20,7 @@ your distro automatically.
 | `SUPER+V` | Clipboard history: filters, **pin** text and pictures (`Ctrl+P`) |
 | `SUPER+.` | Emoji picker (Unicode 18), pastes into the app you were using |
 | `SUPER+P` | **Displays**: Laptop only · Extend · Duplicate · External only, drag to arrange, resolution, scale, rotation, mirror. Keep-or-revert in 15 s; layouts are **remembered per set of screens** and come back when you plug them in |
-| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, wallpaper per theme, shortcuts to every panel, keyboard layouts, touchpad, gaps, animations, sleep timer |
+| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, displays, Wi-Fi, Bluetooth, sound, power & sleep, notifications, keyboard layouts, touchpad, gaps, animations, all in one window (no other app opens) |
 | `SUPER+A` | **Minimize** the window; the bar shows how many are minimized |
 | `SUPER+-` | Bring back the last minimized window onto the desk you're on (again for the one before) |
 | `SUPER+SHIFT+-` | List the minimized windows, pick one to bring back |
@@ -75,11 +77,15 @@ backup.
 ## Make it yours
 
 - **Theme and wallpaper**: `SUPER+I` → Theme / Wallpaper. From a terminal:
-  `~/.config/waybar/scripts/theme.py list`, then `theme.py apply <name>`. Bar, popups,
-  borders, lock screen and wallpaper all switch; see `~/.config/hypr/themes/README.md` to
+  `~/.config/waybar/scripts/theme.py list`, then `theme.py apply <name>`. The bar
+  recolors in place (it restarts only if it was not already running); popups, borders,
+  lock screen and wallpaper all switch too; see `~/.config/hypr/themes/README.md` to
   make your own.
-- **Keyboard, touchpad, gaps, animations, sleep timer**: `SUPER+I` → Input & behavior.
-  Your choices are kept in `~/.config/hypr/user-settings.json` and win over
+- **Everything else**: `SUPER+I` has a page for displays, Wi-Fi, Bluetooth, sound,
+  power & sleep (the sleep timer), notifications, keyboard & touchpad, and look &
+  behavior (gaps, animations). Displays, Wi-Fi, Sound and Power & sleep are the same panels as the bar popups. Bluetooth is the Bluetooth part of Quick settings.
+  `settings.py <page>` opens a page directly (e.g. `settings.py wifi`). Your keyboard,
+  touchpad and look choices are kept in `~/.config/hypr/user-settings.json` and win over
   `hyprland.lua`.
 - **Zen Browser shows the same tabs in every window**: that is Zen's *Window Sync*
   (Zen 1.18+), not this desktop. To turn it off, open `about:config` and set
@@ -138,10 +144,10 @@ anyone the right to redistribute them. So each person adds their own:
    for "free for personal use" and respect "contact the artist" for anything else.
    Example: [Luffy's Gear 5 by rickrickyy](https://wall.alphacoders.com/big.php?i=1325389)
    on Wallpaper Abyss is free for private, personal use.
-2. Save it as `~/.config/hypr/wallpapers/<theme id>.png` (or `.jpg`, `.jpeg`, `.webp`),
-   e.g. `luffy-gear5.png`.
-3. Apply the theme again. With no wallpaper, the desktop is filled with the theme's
-   background color.
+2. Set it once from `SUPER+I` → Wallpaper → Choose…, or save it as
+   `~/.config/hypr/wallpapers/wallpaper.png` (or `.jpg`, `.jpeg`, `.webp`). It is the
+   same picture for every theme; with none, the desktop is filled with the current
+   theme's background color.
 
 To change a character's colors, edit `~/.config/hypr/themes/<theme id>.json` (the color
 names are explained in `~/.config/hypr/themes/README.md`), then apply it again. To add
