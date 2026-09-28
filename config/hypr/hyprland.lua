@@ -1,4 +1,4 @@
--- ~/.config/hypr/hyprland.lua — summer-day-and-night, Lua version (Hyprland 0.56+)
+-- ~/.config/hypr/hyprland.lua — gear5 (Hyprland 0.56+), a Lua take on summer-day-and-night
 -- Saving this file reloads it. Wiki: https://wiki.hypr.land/configuring/
 
 -- ===== Theme: pick one in Settings (SUPER+I), or run ~/.config/waybar/scripts/theme.py =====
@@ -22,6 +22,12 @@ hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 -- hl.monitor({ output = "desc:Dell Inc. DELL U2720Q ABC123", mode = "preferred", position = "0x0", scale = 1.5 })
 -- hl.monitor({ output = "desc:LG Electronics 27GL850 XYZ", mode = "preferred", position = "0x0", scale = 1, transform = 1 })  -- vertical
 -- hl.monitor({ output = "eDP-1", mode = "preferred", position = "2560x360", scale = 1 })
+
+-- the layout Settings > Displays last applied (displays.py writes it), after the lines
+-- above, so a reload (a theme switch) keeps the screens where they are. loadfile, not
+-- require: writing that file must not reload Hyprland by itself; a broken file is skipped
+local layout = loadfile((os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")) .. "/hypr/displays-current.lua")
+if layout then pcall(layout) end
 
 ---------------- Environment ----------------
 hl.env("XCURSOR_SIZE", "24")
@@ -116,7 +122,9 @@ hl.config({
     },
     decoration = {
         rounding = 10,
-        blur = { enabled = false },
+        -- on, but nothing is blurred unless it asks: no window here has an opacity
+        -- below 1; only the minimized-windows picker's layer opts in (rule below)
+        blur = { enabled = true },
         shadow = {
             enabled = true,
             range = 0,
@@ -290,12 +298,27 @@ function restoreMinimized(addr)
     hl.dispatch(hl.dsp.focus({ window = w }))
 end
 
+-- close a hidden window, only if it is still hidden (the picker's Delete / ×)
+function closeMinimized(addr)
+    local _, byAddr = minimizedStack()
+    local w = byAddr[addr]
+    if not isMinimized(w) then return end
+    hl.dispatch(hl.dsp.window.close({ window = w }))
+end
+
 bind(mainMod .. " + A",             function() minimizeActive() end)
 bind(mainMod .. " + minus",         function() restoreMinimized() end)
-bind(mainMod .. " + SHIFT + minus", exec("~/.config/waybar/scripts/popup.sh launcher --minimized"))
+bind(mainMod .. " + SHIFT + minus", exec("~/.config/waybar/scripts/popup.sh minimized-picker"))
+-- a thumbnail card of each minimized window: blurred over the dimmed backdrop
+-- (BATPICK-7). Only this one namespace opts into blur; nothing else changes look.
+hl.layer_rule({
+    name = "minimized-picker-blur",
+    match = { namespace = "^minimized-picker$" },
+    blur = true,
+})
 
--- focus / move with arrows
-for _, dir in ipairs({ "left", "right" }) do
+-- SUPER+SHIFT+arrows: move the window within this desk
+for _, dir in ipairs({ "left", "right", "up", "down" }) do
     bind(mainMod .. " + SHIFT + " .. dir, hl.dsp.window.move({ direction = dir }))
 end
 -- One desk across all monitors: 10 desks, and every monitor switches together.
@@ -601,11 +624,12 @@ bind("XF86AudioPrev",         exec("playerctl previous"), { locked = true })
 bind("Print",        exec('grim -g "$(slurp)" - | wl-copy'))
 bind("CTRL + Print", exec('grim -g "$(slurp)" - | swappy -f -'))
 
--- SUPER+Up/Down: previous/next workspace (SHIFT = take the window along)
-bind(mainMod .. " + up",           stepWorkspace(-1))
-bind(mainMod .. " + down",         stepWorkspace(1))
-bind(mainMod .. " + SHIFT + up",   sendStep(-1))
-bind(mainMod .. " + SHIFT + down", sendStep(1))
+-- SUPER+Up/Down: previous/next workspace
+bind(mainMod .. " + up",        stepWorkspace(-1))
+bind(mainMod .. " + down",      stepWorkspace(1))
+-- SUPER+Page Up/Down: take the window to the previous/next workspace
+bind(mainMod .. " + Page_Up",   sendStep(-1))
+bind(mainMod .. " + Page_Down", sendStep(1))
 
 -- SUPER+Right/Left: cycle through the windows of this desk on all monitors,
 -- left to right across the screens (forward / backward)

@@ -38,6 +38,8 @@ The weather location is blurred.
 
 ### Power menu (`SUPER+B`)
 
+Lock, sleep, reboot or power off; the idle behavior lives in Settings.
+
 ![Power popup](screenshots/popup-power.png)
 
 ### Calculator (`SUPER+C`)
@@ -64,6 +66,14 @@ Shown on its Actions tab. The All tab also lists your most used apps and recent 
 
 ![Displays popup](screenshots/popup-displays.png)
 
+### Minimized windows (`SUPER+SHIFT+-`, or the bar's minimized counter)
+
+A card per minimized window, newest first, with its icon, title, a number (1–9)
+and a thumbnail, over a dimmed, blurred backdrop. Type to filter, arrows to move,
+Enter or its number to bring one back, Delete / middle-click / its × to close it.
+
+*(screenshot pending — `tests/screenshots.sh` adds it on the next live run)*
+
 ## Settings (`SUPER+I`)
 
 ### Theme
@@ -77,6 +87,12 @@ Pick a character; make, edit, rename or delete a custom one.
 One picture for every theme.
 
 ![Settings: Wallpaper](screenshots/settings-wallpaper.png)
+
+### Fonts
+
+The English (mono) and the Persian font, from the installed families.
+
+![Settings: Fonts](screenshots/settings-fonts.png)
 
 ### Displays
 
@@ -96,7 +112,18 @@ One picture for every theme.
 
 ### Power & sleep
 
+Battery and power mode, brightness of every screen, then the sleep timer and
+lock / sleep / reboot / power off.
+
 ![Settings: Power & sleep](screenshots/settings-power.png)
+
+### Battery
+
+Charge level, state, health, cycle count and power draw; Full / Balanced / Desk
+presets, "stop at" / "start at" sliders and charge speed — where the firmware's
+`charge_types` can be limited. Read-only, with the fix-it command, where it can't.
+
+*(screenshot pending — `tests/screenshots.sh` adds it on the next live run)*
 
 ### Notifications
 

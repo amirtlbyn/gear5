@@ -58,6 +58,7 @@ except (ValueError, ImportError):
     LS = None
 
 import browsers  # noqa: E402
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -79,7 +80,7 @@ SKIP_DIRS = ("/.", "/node_modules/", "/__pycache__/", "/site-packages/", "/venv/
 
 P = palette.load(THEME)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.launcher { background: transparent; }
 .backdrop { background: alpha(black, 0.12); }
 .popup {
@@ -117,7 +118,7 @@ image.symbolic { color: @fg; }
 }
 .chips button:hover { background: @bg2; }
 .chips button.active { background: @green; color: @on_accent; }
-"""
+""")
 
 
 # ---------------------------------------------------------------------------

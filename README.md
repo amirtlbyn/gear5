@@ -1,4 +1,4 @@
-# Summer Hyprland
+# Gear5
 
 An Everforest desktop for **Hyprland 0.56+** (Lua config), built on
 [**summer-day-and-night** by MathisP75](https://github.com/MathisP75/summer-day-and-night) —
@@ -20,10 +20,10 @@ your distro automatically.
 | `SUPER+V` | Clipboard history: filters, **pin** text and pictures (`Ctrl+P`) |
 | `SUPER+.` | Emoji picker (Unicode 18), pastes into the app you were using |
 | `SUPER+P` | **Displays**: Laptop only · Extend · Duplicate · External only, drag to arrange, resolution, scale, rotation, mirror. Keep-or-revert in 15 s; layouts are **remembered per set of screens** and come back when you plug them in |
-| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, displays, Wi-Fi, Bluetooth, sound, power & sleep, notifications, keyboard layouts, touchpad, gaps, animations, all in one window (no other app opens) |
-| `SUPER+A` | **Minimize** the window; the bar shows how many are minimized |
+| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, fonts (English + Persian), displays, Wi-Fi, Bluetooth, sound, power & sleep (battery, power mode, brightness of every screen), **Battery** (charge limits: presets, stop/start, speed), notifications, keyboard layouts, touchpad, gaps, animations, all in one window (no other app opens) |
+| `SUPER+A` | **Minimize** the window; the bar shows how many are minimized (click it to open the picker below) |
 | `SUPER+-` | Bring back the last minimized window onto the desk you're on (again for the one before) |
-| `SUPER+SHIFT+-` | List the minimized windows, pick one to bring back |
+| `SUPER+SHIFT+-` | **Minimized windows** picker: a thumbnail card for each, newest first — type to filter, arrows + Enter or its number to bring one back, Delete / middle-click / its × to close it |
 | `SUPER+N` | Notifications (swaync) |
 | `SUPER+L` | Lock (hyprlock) |
 | `SUPER+B` | Power menu |
@@ -58,15 +58,15 @@ run `./install.sh --configs-only`.
 ## Install
 
 ```sh
-git clone https://github.com/<you>/summer-hyprland
-cd summer-hyprland
+git clone https://github.com/<you>/gear5
+cd gear5
 ./install.sh            # --dry-run shows what it would do
 ```
 
 The installer:
 1. installs the packages (asks for `sudo`), plus the JetBrainsMono Nerd Font if missing;
 2. moves your current `~/.config/hypr`, `waybar` and `swaync` into
-   `~/.config/summer-hyprland-backup-<date>/`;
+   `~/.config/gear5-backup-<date>/`;
 3. copies the configs and downloads the wallpapers from the original rice.
 
 Then log out and choose **Hyprland** on the login screen (GDM, SDDM, …).
@@ -79,14 +79,21 @@ backup.
 - **Theme and wallpaper**: `SUPER+I` → Theme / Wallpaper. From a terminal:
   `~/.config/waybar/scripts/theme.py list`, then `theme.py apply <name>`. The bar
   recolors in place (it restarts only if it was not already running); popups, borders,
-  lock screen and wallpaper all switch too; see `~/.config/hypr/themes/README.md` to
-  make your own.
+  lock screen, wallpaper and kitty's colors all switch too; see
+  `~/.config/hypr/themes/README.md` to make your own.
+- **Fonts**: `SUPER+I` → Fonts. The English (mono) and the Persian font of the bar,
+  popups, notifications, lock screen and kitty, chosen from the installed families
+  and applied everywhere at once.
 - **Everything else**: `SUPER+I` has a page for displays, Wi-Fi, Bluetooth, sound,
-  power & sleep (the sleep timer), notifications, keyboard & touchpad, and look &
-  behavior (gaps, animations). Displays, Wi-Fi, Sound and Power & sleep are the same panels as the bar popups. Bluetooth is the Bluetooth part of Quick settings.
-  `settings.py <page>` opens a page directly (e.g. `settings.py wifi`). Your keyboard,
-  touchpad and look choices are kept in `~/.config/hypr/user-settings.json` and win over
-  `hyprland.lua`.
+  power & sleep (battery, power mode, every screen's brightness, the sleep timer,
+  and lock / sleep / reboot / power off), **Battery** (charge limits, where the
+  firmware's `charge_types` can be written — a `battery-limits` user service enforces
+  them at login, every 30 s, and within 2 s of a change), notifications, keyboard &
+  touchpad, and look & behavior (gaps, animations). Displays, Wi-Fi, Sound and the
+  power page's panels are the same as the bar popups'. Bluetooth is the Bluetooth
+  part of Quick settings. `settings.py <page>` opens a page directly (e.g.
+  `settings.py wifi`). Your keyboard, touchpad and look choices are kept in
+  `~/.config/hypr/user-settings.json` and win over `hyprland.lua`.
 - **Zen Browser shows the same tabs in every window**: that is Zen's *Window Sync*
   (Zen 1.18+), not this desktop. To turn it off, open `about:config` and set
   `zen.window-sync.enabled` to `false` (tab renaming and dragging a tab into a new

@@ -52,6 +52,7 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -64,7 +65,7 @@ HISTORY_MAX = 50
 
 P = palette.load(THEME)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.calculator { background: transparent; }
 .backdrop { background: alpha(black, 0.18); }
 
@@ -186,7 +187,7 @@ button.pill {
 }
 button.pill:hover { background: @bg3; }
 button.pill.active { background: @blue; color: @on_accent; }
-"""
+""")
 
 I_COPY, I_SWAP, I_BACK, I_CAL, I_REFRESH = "\U000f018f", "\U000f04e1", "\U000f006e", "\U000f00f0", "\U000f0450"
 

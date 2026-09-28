@@ -19,9 +19,13 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 PROFILES = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "hypr",
                         "displays.json")
+# the layout last applied, as Lua: hyprland.lua loads it after its own monitor lines,
+# so a config reload (a theme switch) puts the screens straight where they are now
+LAYOUT_LUA = os.path.join(os.path.dirname(PROFILES), "displays-current.lua")
 LID_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "hypr-lid-closed")
 INTERNAL = ("eDP", "LVDS", "DSI")
 
@@ -30,11 +34,20 @@ INTERNAL = ("eDP", "LVDS", "DSI")
 # screens: read, describe, apply (no GTK needed: --auto runs this part only)
 # ---------------------------------------------------------------------------
 def hyprctl_json(*args):
-    try:
-        return json.loads(subprocess.run(["hyprctl", "-j", *args], capture_output=True, text=True,
-                                         timeout=3).stdout or "[]")
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        return []
+    """hyprctl's answer as JSON, or [] when it can't be had. A busy moment on
+    Hyprland's socket (many readers at once) can fail one call with no output,
+    so it is tried twice: one dropped answer must not leave the page empty."""
+    for attempt in (1, 2):
+        try:
+            out = subprocess.run(["hyprctl", "-j", *args], capture_output=True, text=True,
+                                 timeout=5).stdout
+            if out.strip():
+                return json.loads(out)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+        if attempt == 1:
+            time.sleep(0.2)
+    return []
 
 
 def mode_of(m):
@@ -122,7 +135,28 @@ def lua_rules(screens):
     return "\n".join(lines)
 
 
+def write_layout(screens, path=None):
+    """Write the layout for hyprland.lua to load (only when its text changes).
+    hyprland.lua reads it with loadfile, so writing it does not reload Hyprland."""
+    path = path or LAYOUT_LUA
+    text = "-- written by waybar/scripts/displays.py: the screen layout last applied\n" + lua_rules(screens) + "\n"
+    try:
+        with open(path) as f:
+            if f.read() == text:
+                return
+    except OSError:
+        pass
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path + ".tmp", "w") as f:
+            f.write(text)
+        os.replace(path + ".tmp", path)
+    except OSError:
+        pass
+
+
 def apply(screens):
+    write_layout(screens)
     try:
         subprocess.run(["hyprctl", "eval", lua_rules(screens)], capture_output=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired):
@@ -188,6 +222,7 @@ def auto():
         # another setup (e.g. "External only") can't leave you with a black laptop
         off = [s for s in screens if not s.enabled and not (s.internal and lid_closed())]
         if not off:
+            write_layout(screens)  # nothing to change: the next reload keeps the screens as they are
             return
         for s in off:
             s.enabled, s.mode, s.mirror = True, s.modes[0], None
@@ -196,7 +231,8 @@ def auto():
             s.y = min((o.y for o in shown), default=0)
         wanted = screens
     if all(s.state() == now[s.name] or (s.internal and lid_closed()) for s in wanted):
-        return          # already like that: don't touch anything
+        write_layout(wanted)  # already like that: only make sure the next reload keeps it
+        return
     apply(wanted)
 
 
@@ -236,6 +272,7 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -299,7 +336,7 @@ button.act:disabled { opacity: 0.4; }
 .confirm .count { color: @yellow; }
 .note { color: @grey; font-weight: normal; font-size: 11px; margin: 8px 4px 0 4px; }
 """
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE)
 
 I_LAPTOP, I_EXTEND, I_MIRROR, I_MONITOR = "\U000f0322", "\U000f0e27", "\U000f0e2b", "\U000f0379"
 
@@ -726,7 +763,7 @@ class DisplaysPanel:
             copies = [o.label for o in self.screens if o.mirror == s.name and o.enabled]
             text = f"{s.label}\n{s.mode.split('@')[0]}" + (f"\n+ {', '.join(copies)}" if copies else "")
             layout = PangoCairo.create_layout(cr)
-            layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font Bold 9"))
+            layout.set_font_description(Pango.FontDescription.from_string(fonts.pango("JetBrainsMono Nerd Font Bold 9")))
             layout.set_alignment(Pango.Alignment.CENTER)
             layout.set_width(int(max(10, rw - 8) * Pango.SCALE))
             layout.set_ellipsize(Pango.EllipsizeMode.END)

@@ -2,13 +2,15 @@
 # Open or close a popup instantly: the popup keeps running hidden in the background,
 # so this only sends it a D-Bus message (no Python start-up). If it isn't running
 # yet, start it, and it opens.
-#   popup.sh volume-popup|control-center|wifi-menu|calendar-popup|power-popup|calculator|worldclock|emoji-picker|clipboard|launcher|displays [THEME]
+#   popup.sh volume-popup|control-center|wifi-menu|calendar-popup|power-popup|calculator|worldclock|emoji-picker|clipboard|launcher|displays|minimized-picker [THEME]
 #   popup.sh --restart [THEME]    (re)start them all hidden, e.g. at login or on theme change
 # THEME is a file name in ~/.config/hypr/themes/; without one, the theme in use.
 #   popup.sh --close-all          close whatever popup is open (desk switch, new window, ...)
-#   popup.sh launcher --minimized  open the launcher on its list of minimized windows (SUPER+SHIFT+-)
+#   popup.sh launcher --minimized  open the launcher on its list of minimized windows (kept for
+#                                  the launcher's own Minimized tab; SUPER+SHIFT+- and the bar's
+#                                  counter open minimized-picker instead)
 dir=~/.config/waybar/scripts
-all="volume-popup control-center wifi-menu calendar-popup power-popup calculator worldclock emoji-picker clipboard launcher displays"
+all="volume-popup control-center wifi-menu calendar-popup power-popup calculator worldclock emoji-picker clipboard launcher displays minimized-picker"
 # each open popup leaves a mark here (see popup_backdrop.py)
 marks="${XDG_RUNTIME_DIR:-/tmp}/popups"
 
@@ -58,6 +60,7 @@ case "$1" in
   clipboard)      id=io.local.clipboard ;;
   launcher)       id=io.local.launcher ;;
   displays)       id=io.local.displays ;;
+  minimized-picker) id=io.local.minimizedpicker ;;
   *) exit 1 ;;
 esac
 # only one popup at a time

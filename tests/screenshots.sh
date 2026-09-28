@@ -125,6 +125,8 @@ shot_popup emoji-picker   popup-emoji
 # the Actions tab: All shows your most used apps and recent files, which are private
 shot_popup launcher       popup-launcher Tab Tab Tab Tab Tab
 shot_popup displays       popup-displays
+# minimize a window first (SUPER+A), so this card grid has something to show
+shot_popup minimized-picker popup-minimized-picker
 
 # every Settings page, then the theme editor
 shot_settings theme         settings-theme
@@ -134,6 +136,7 @@ shot_settings wifi          settings-wifi
 shot_settings bluetooth     settings-bluetooth
 shot_settings sound         settings-sound
 shot_settings power         settings-power
+shot_settings battery       settings-battery
 shot_settings notifications settings-notifications
 shot_settings keyboard      settings-keyboard
 shot_settings look          settings-look

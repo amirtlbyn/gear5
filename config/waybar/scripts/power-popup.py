@@ -31,6 +31,7 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -79,7 +80,7 @@ button.act {
 button.act:hover { background: shade(@bg3, 1.1); }
 button.act.danger { background: @red; color: @bg0; border-bottom-color: @red_edge; }
 """
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE)
 
 MODES = [
     ("sleep", "\U000f04b2", "Sleep", "Lock, then sleep once nothing is running"),
@@ -94,8 +95,8 @@ def idle(*args):
 
 
 class PowerPanel:
-    """What happens when you're away, after how long, and lock / sleep / power off.
-    Shown by the popup below and by Settings (see panel.py for the host)."""
+    """What happens when you're away, after how long, and lock / sleep / reboot /
+    power off. Shown by the popup below and by Settings (see panel.py for the host)."""
 
     def __init__(self, host):
         self.host = host
@@ -167,6 +168,7 @@ class PowerPanel:
         for label, cmd, danger in (
             ("\U000f033e  Lock", "pidof hyprlock || (hyprctl switchxkblayout all 0; hyprlock)", False),
             ("\U000f04b2  Sleep", "systemctl suspend", False),
+            ("\U000f070a  Reboot", "systemctl reboot", True),
             ("\U000f0425  Power off", "systemctl poweroff", True),
         ):
             b = Gtk.Button(label=label)

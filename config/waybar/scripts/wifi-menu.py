@@ -44,6 +44,7 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -118,7 +119,7 @@ button.footer { margin-top: 10px; padding: 6px 10px; }
 .popup switch slider { background: @fg; border: none; border-radius: 12px; box-shadow: none; }
 .popup spinner { color: @green; }
 """
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE)
 
 
 # ---------------------------------------------------------------------------

@@ -148,6 +148,7 @@ def main():
         from gi.repository import Gtk4LayerShell as LS
     except (ValueError, ImportError):
         LS = None
+    import fonts
     import palette
     import popup_backdrop
 
@@ -157,7 +158,7 @@ def main():
         LOCAL_ZONE = "UTC"
     theme = sys.argv[1] if len(sys.argv) > 1 else palette.current()
     pal = palette.load(theme, edge="edge_deep")
-    css = "".join(f"@define-color {k} {v};\n" for k, v in pal.items()) + """
+    css = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in pal.items()) + """
 window.cal-popup { background: transparent; }
 .backdrop { background: transparent; }
 .popup {
@@ -228,7 +229,7 @@ list.wx-results { background: transparent; }
 list.wx-results > row { background: transparent; border-radius: 8px; padding: 5px 8px; }
 list.wx-results > row:hover { background: alpha(@fg, 0.07); }
 .wx-res-sub { color: @grey; font-weight: normal; font-size: 11px; }
-"""
+""")
 
     cache = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
                          "calendar-popup-mode")

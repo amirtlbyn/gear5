@@ -16,8 +16,20 @@ import re
 CONFIG = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
 XKB_SYMBOLS = "/usr/share/X11/xkb/symbols"
 
-DEFAULTS = dict(kb_layout="us,ir", natural_scroll=True, tap_to_click=True, gaps=True, animations=True)
+DEFAULTS = dict(
+    kb_layout="us,ir",
+    natural_scroll=True,
+    tap_to_click=True,
+    gaps=True,
+    animations=True,
+    font_en="JetBrainsMono Nerd Font",
+    font_fa="Vazirmatn",
+    battery_stop=100,
+    battery_start=95,
+    battery_speed="Fast",
+)
 SWITCHES = ("natural_scroll", "tap_to_click", "gaps", "animations")
+FONTS = ("font_en", "font_fa")
 # the values hyprland.lua uses (and toggle-gaps.sh puts back)
 GAPS_ON = dict(gaps_in=10, gaps_out=20, rounding=10)
 
@@ -48,6 +60,23 @@ def check_layouts(value, symbols=XKB_SYMBOLS):
     return ",".join(parts)
 
 
+def check_font(value):
+    """A font family name: not empty, not endless. The Fonts page only offers
+    installed names; this guards a hand-edited file."""
+    name = str(value).strip()
+    if not name or len(name) > 60 or any(c in name for c in '"{};'):
+        raise ValueError(f"“{value}” is not a font family name")
+    return name
+
+
+def _read(path):
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return None
+
+
 def load(config=CONFIG):
     json_path, _ = paths(config)
     try:
@@ -57,7 +86,21 @@ def load(config=CONFIG):
         saved = {}
     s = dict(DEFAULTS)
     if isinstance(saved, dict):
-        s.update({k: v for k, v in saved.items() if k in DEFAULTS and type(v) is type(DEFAULTS[k])})
+        for k, v in saved.items():
+            if k not in DEFAULTS or type(v) is not type(DEFAULTS[k]):
+                continue
+            if k in FONTS:  # a hand-edited name the Fonts page would never offer
+                try:
+                    v = check_font(v)
+                except ValueError:
+                    continue
+            s[k] = v
+    import battery  # local: battery.py imports this module
+
+    try:  # one bad battery value must not block saving the other pages' settings
+        battery.valid(s["battery_stop"], s["battery_start"], s["battery_speed"])
+    except ValueError:
+        s.update({k: DEFAULTS[k] for k in ("battery_stop", "battery_start", "battery_speed")})
     return s
 
 
@@ -85,9 +128,18 @@ def save(s, config=CONFIG, symbols=XKB_SYMBOLS):
     for k in SWITCHES:
         if not isinstance(s[k], bool):
             raise ValueError(f"{k} must be on or off")
+    for k in FONTS:
+        s[k] = check_font(s[k])
+    import battery  # local: battery.py imports this module, so avoid a cycle at load time
+
+    s["battery_stop"], s["battery_start"], s["battery_speed"] = battery.valid(
+        s["battery_stop"], s["battery_start"], s["battery_speed"]
+    )
     json_path, lua_path = paths(config)
     os.makedirs(os.path.dirname(json_path), exist_ok=True)
     for path, text in ((json_path, json.dumps(s, indent=1) + "\n"), (lua_path, to_lua(s))):
+        if path == lua_path and _read(path) == text:
+            continue  # unchanged: writing it would make Hyprland reload for nothing
         with open(path + ".tmp", "w") as f:
             f.write(text)
         os.replace(path + ".tmp", path)

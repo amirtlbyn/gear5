@@ -2,7 +2,6 @@
 @import url("../waybar/colors/current.css");   /* the theme colors, written by theme.py */
 
 * {
-  font-family: "JetBrainsMono Nerd Font", "Vazirmatn", sans-serif;
   font-size: 14px;
   font-weight: bold;
 }

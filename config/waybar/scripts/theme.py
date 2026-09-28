@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Switch the desktop theme: bar, popups, notifications, window borders, lock screen
-and wallpaper, all from one file in ~/.config/hypr/themes/ (see the README there).
+Switch the desktop theme: bar, popups, notifications, window borders, lock
+screen, wallpaper and kitty, all from one file in ~/.config/hypr/themes/ (see
+the README there).
 
   theme.py list                 the themes you can pick
   theme.py current              the theme in use
@@ -10,10 +11,12 @@ and wallpaper, all from one file in ~/.config/hypr/themes/ (see the README there
 """
 import json
 import os
+import re
 import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 CONFIG = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
@@ -31,9 +34,12 @@ def lua_str(s):
 
 
 def waybar_css(t):
-    """waybar/colors/current.css: the colors as @define-color, for the bar and swaync."""
+    """waybar/colors/current.css: the colors as @define-color, for the bar and
+    swaync, and the font rule both import (their own * rules carry no font)."""
     c = dict(t["colors"], grey1=t["colors"]["grey"])  # waybar's older name for grey
-    return f"/* {HEADER.format(**t)} */\n" + "".join(f"@define-color {k} {v};\n" for k, v in c.items())
+    return (f"/* {HEADER.format(**t)} */\n"
+            + "".join(f"@define-color {k} {v};\n" for k, v in c.items())
+            + fonts.css_rule())
 
 
 def hypr_lua(t, wall):
@@ -60,7 +66,50 @@ def hyprlock_conf(t, wall):
     lines = [f"# {HEADER.format(**t)}"]
     lines += [f"${k} = {rgb(c[k])}" for k in ("fg", "bg0", "green", "yellow", "red", "edge_deep")]
     lines.append(f"$wallpaper = {wall or ''}")
+    lines.append(f"$font = {fonts.families()[0]} Bold")
     return "\n".join(lines) + "\n"
+
+
+# kitty's color names -> the theme's color roles (a full 16, like the Everforest
+# file the installer puts in ~/.config/kitty/colors/)
+KITTY = [
+    ("background", "bg0"), ("foreground", "fg"),
+    ("selection_foreground", "fg"), ("selection_background", "bg3"),
+    ("cursor", "fg"), ("url_color", "blue"),
+    ("color0", "bg2"), ("color1", "red"), ("color2", "green"), ("color3", "yellow"),
+    ("color4", "blue"), ("color5", "purple"), ("color6", "aqua"), ("color7", "grey2"),
+    ("color8", "grey0"), ("color9", "red_hover"), ("color10", "aqua"), ("color11", "yellow"),
+    ("color12", "blue"), ("color13", "purple"), ("color14", "aqua"), ("color15", "fg"),
+]
+
+
+def kitty_conf(t):
+    """kitty/colors/current.conf: the theme's colors and the desktop fonts.
+    kitty watches its config files, so writing this recolors open windows."""
+    c = t["colors"]
+    lines = [f"# {HEADER.format(**t)}", fonts.kitty_font()]
+    lines += [f"{name:<20} {c[role]}" for name, role in KITTY]
+    return "\n".join(lines) + "\n"
+
+
+def point_kitty_at_current(kitty_conf_path):
+    """kitty.conf's `include colors/<name>.conf` -> the generated current.conf.
+    A kitty.conf without such a line (or missing) is left alone."""
+    try:
+        with open(kitty_conf_path) as f:
+            text = f.read()
+    except OSError:
+        return
+    new = re.sub(r"^include colors/\S+\.conf$", "include colors/current.conf", text, flags=re.M)
+    if new != text:
+        write_in_place(kitty_conf_path, new)
+
+
+def nudge_kitty():
+    """Ask every running kitty to reload its config (colors included) with
+    SIGUSR1, the documented way: its own file watching does not reliably pick
+    up writes to the generated include file."""
+    run(["pkill", "-USR1", "-x", "kitty"])
 
 
 def write(path, text):
@@ -84,6 +133,15 @@ def touch(path):
         pass  # not installed yet: nothing to nudge
 
 
+def write_in_place(path, text):
+    """Overwrite the file, keeping its inode. kitty watches the config files it
+    loaded; a rename swaps the inode and running kitty windows would never see
+    the new colors. A reader mid-write sees one torn reload at worst."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write(text)
+
+
 def write_all(theme_id, config=CONFIG):
     """Write every generated file for this theme. Returns the theme actually used."""
     themes = os.path.join(config, "hypr", "themes")
@@ -93,6 +151,11 @@ def write_all(theme_id, config=CONFIG):
     touch(os.path.join(config, "waybar", "bar", "style.css"))  # Waybar reloads its CSS, no restart
     write(os.path.join(themes, "current.lua"), hypr_lua(t, wall))
     write(os.path.join(config, "hypr", "hyprlock-colors.conf"), hyprlock_conf(t, wall))
+    kitty = os.path.join(config, "kitty")
+    if os.path.isdir(kitty):  # not installed: nothing to recolor
+        write_in_place(os.path.join(kitty, "colors", "current.conf"), kitty_conf(t))
+        point_kitty_at_current(os.path.join(kitty, "kitty.conf"))
+        nudge_kitty()
     write(os.path.join(themes, "current"), t["id"] + "\n")  # last: the others are ready
     return t
 

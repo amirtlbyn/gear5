@@ -44,6 +44,7 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -73,7 +74,7 @@ ALIASES = {
 
 P = palette.load(THEME)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.worldclock { background: transparent; }
 .backdrop { background: transparent; }
 .popup {
@@ -136,7 +137,7 @@ list.results > row:hover { background: alpha(@fg, 0.06); }
 .res-time { color: @grey; font-size: 12px; }
 .plus { color: @green; font-size: 16px; }
 .hint { color: alpha(@grey, 0.8); font-weight: normal; font-size: 11px; margin: 8px 4px 0 4px; }
-"""
+""")
 
 I_CLOCK, I_SUN, I_MOON, I_X, I_PLUS, I_SEARCH = "\U000f0954", "\U000f0599", "\U000f0594", "\U000f0156", "\U000f0415", "\U000f0349"
 

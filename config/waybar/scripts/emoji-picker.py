@@ -41,6 +41,7 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -63,7 +64,7 @@ CATEGORIES = [("😀", "Smileys"), ("👋", "People"), ("🐵", "Animals & natur
 
 P = palette.load(THEME)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.emoji-picker { background: transparent; }
 .backdrop { background: alpha(black, 0.12); }
 .popup {
@@ -99,7 +100,7 @@ flowbox > flowboxchild:focus, flowbox > flowboxchild:selected { background: alph
 .preview-hint { color: @grey; font-weight: normal; font-size: 11px; }
 .empty { color: @grey; font-weight: normal; padding: 30px; }
 .toast { color: @green; font-size: 12px; }
-"""
+""")
 
 
 # ---------------------------------------------------------------------------

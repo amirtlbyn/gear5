@@ -47,6 +47,7 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -60,7 +61,7 @@ TERMINALS = ("kitty", "ghostty", "foot", "alacritty", "wezterm", "ptyxis", "term
 
 P = palette.load(THEME)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.clipboard { background: transparent; }
 .backdrop { background: alpha(black, 0.12); }
 .popup {
@@ -121,7 +122,7 @@ button.act.pin.on { color: @yellow; opacity: 1; }
 button.act.del:hover { color: @red; }
 .empty { color: @grey; font-weight: normal; padding: 40px; }
 .footer { color: @grey; font-weight: normal; font-size: 11px; margin: 8px 4px 0 4px; }
-"""
+""")
 
 I_CLIP, I_TEXT, I_LINK, I_CODE, I_NUM, I_IMG, I_COLOR = (
     "\U000f014c", "\U000f09ed", "\U000f0337", "\U000f0169", "\U000f03a0", "\U000f02e9", "\U000f0266")

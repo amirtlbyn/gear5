@@ -2,8 +2,8 @@
 """
 Settings (SUPER+I, or the button in the control center), in the theme's colors.
 
-  settings.py [PAGE]      open on that page: theme, wallpaper, displays, wifi, bluetooth,
-                          sound, power, notifications, keyboard, look
+  settings.py [PAGE]      open on that page: theme, wallpaper, fonts, displays, wifi,
+                          bluetooth, sound, power, battery, notifications, keyboard, look
   settings.py theme-new           open the theme editor for a new theme
   settings.py theme-edit-ID       open the theme editor for a custom theme
 
@@ -12,6 +12,10 @@ Settings (SUPER+I, or the button in the control center), in the theme's colors.
 - Wallpaper: one image for every theme, copied into ~/.config/hypr/wallpapers/.
 - Displays, Wi-Fi, Bluetooth, Sound, Power & sleep: the bar popups' own panels
   (see panel.py), so every setting is here and nothing opens another app.
+  Power & sleep stacks them: battery and power mode, brightness, then the
+  power panel (idle behavior, and lock / sleep / reboot / power off).
+- Battery: charge limits (presets, stop/start thresholds, charge speed), kept
+  in user-settings.json and enforced by the battery-limits service (battery.py).
 - Notifications: Do Not Disturb and Clear all (swaync).
 - Keyboard & touchpad, Look & behavior: layouts, touchpad, gaps, animations.
   Kept in ~/.config/hypr/user-settings.json (see settings_store.py).
@@ -35,6 +39,7 @@ try:
     gi.require_version("Gtk4LayerShell", "1.0")  # popup_backdrop imports it
 except ValueError:
     pass
+import fonts  # noqa: E402
 import palette  # noqa: E402
 import panel  # noqa: E402
 import popup_backdrop  # noqa: E402
@@ -49,23 +54,30 @@ THEME_PY = os.path.join(SCRIPTS, "theme.py")
 PAGES = [
     ("theme", "\U000f03d8", "Theme"),
     ("wallpaper", "\U000f02e9", "Wallpaper"),
+    ("fonts", "\U000f0289", "Fonts"),
     ("displays", "\U000f0379", "Displays"),
     ("wifi", "\U000f05a9", "Wi-Fi"),
     ("bluetooth", "\U000f00af", "Bluetooth"),
     ("sound", "\U000f057e", "Sound"),
     ("power", "\U000f0425", "Power & sleep"),
+    ("battery", "\U000f0079", "Battery"),
     ("notifications", "\U000f009a", "Notifications"),
     ("keyboard", "\U000f030c", "Keyboard & touchpad"),
     ("look", "\U000f0568", "Look & behavior"),
 ]
 SECTIONS = {"theme": "APPEARANCE", "displays": "SYSTEM", "keyboard": "INPUT & DESKTOP"}  # heading before
 OLD_PAGES = {"input": "keyboard"}  # page names of earlier versions
-PANELS = {  # page -> (popup, panel class): the bar popups' own panels, see panel.py
-    "displays": ("displays", "DisplaysPanel"),
-    "wifi": ("wifi-menu", "WifiPanel"),
-    "bluetooth": ("control-center", "BluetoothPanel"),
-    "sound": ("volume-popup", "VolumePanel"),
-    "power": ("power-popup", "PowerPanel"),
+PANELS = {  # page -> [(popup, panel class), …]: the bar popups' own panels, see panel.py
+    "displays": [("displays", "DisplaysPanel")],
+    "wifi": [("wifi-menu", "WifiPanel")],
+    "bluetooth": [("control-center", "BluetoothPanel")],
+    "sound": [("volume-popup", "VolumePanel")],
+    "power": [
+        ("control-center", "BatteryPanel"),
+        ("control-center", "BrightnessPanel"),
+        ("power-popup", "PowerPanel"),
+    ],
+    "battery": [("battery-page", "BatteryLimitsPanel")],
 }
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp")
 
@@ -105,8 +117,10 @@ button.card.current { box-shadow: inset 0 0 0 2px @green; }
 button.act, menubutton.act { background: @bg2; color: @fg; border: none; box-shadow: none;
              border-radius: 12px; border-bottom: 3px solid @edge_deep; padding: 6px 14px; font-weight: bold; }
 button.act:hover, menubutton.act:hover { background: @bg3; }
+button.act:active, menubutton.act:active { background: @bg3; border-bottom-width: 0; padding-top: 9px; }
 button.act.primary, menubutton.act.primary { background: @green; color: @on_accent;
              border-bottom-color: @green_edge; }
+button.act.primary:active { background: @green_edge; border-bottom-width: 0; padding-top: 9px; }
 button.act:disabled, menubutton.act:disabled { opacity: 0.4; }
 button.tile { background: @bg0; color: @fg; border: none; box-shadow: none; border-radius: 16px;
               border-bottom: 4px solid @edge_deep; padding: 14px; }
@@ -284,7 +298,9 @@ def theme_preview(colors):
         layout = PangoCairo.create_layout(cr)
         layout.set_text(s, -1)
         layout.set_font_description(
-            Pango.FontDescription.from_string("JetBrainsMono Nerd Font" + (" Bold" if bold else "") + " 11")
+            Pango.FontDescription.from_string(
+                fonts.pango("JetBrainsMono Nerd Font" + (" Bold" if bold else "") + " 11")
+            )
         )
         cr.move_to(x, y)
         PangoCairo.show_layout(cr, layout)
@@ -314,7 +330,8 @@ class Settings(Gtk.Application):
         self.provider = None
         self.page = "theme"
         self.busy = False  # a theme switch, wallpaper copy or theme save is running
-        self.panels = {}  # page -> (panel, its module, its CSS provider), built when first shown
+        self.panels = {}  # page -> [(panel, its module, its CSS provider)], built when first shown
+        self.prefetched = set()  # the panel pages prefetch_panel has tried
         self.theme = None  # the theme the window is drawn in
 
     # ----- lifecycle -----------------------------------------------------------
@@ -334,7 +351,7 @@ class Settings(Gtk.Application):
         if "--hidden" not in args:  # --hidden: start in the background (tests)
             if self.theme != palette.current():  # switched from the bar or a terminal
                 self.apply_css()
-                self.rebuild("theme")
+                self.mark_theme(palette.current())
                 self.rebuild("wallpaper")
             self.win.present()
             if not was_shown:  # a shown window: show_page already did it
@@ -342,9 +359,10 @@ class Settings(Gtk.Application):
         return 0
 
     def do_shutdown(self):
-        for p, _mod, _provider in self.panels.values():
-            if hasattr(p, "stop"):  # e.g. Sound's pactl watcher, a Bluetooth scan
-                p.stop()
+        for panels in self.panels.values():
+            for p, _mod, _provider in panels:
+                if hasattr(p, "stop"):  # e.g. Sound's pactl watcher, a Bluetooth scan
+                    p.stop()
         Gtk.Application.do_shutdown(self)
 
     def apply_css(self):
@@ -355,14 +373,25 @@ class Settings(Gtk.Application):
             )
         self.theme = palette.current()
         colors = palette.load(self.theme)
-        self.provider.load_from_string(
-            "".join(f"@define-color {k} {v};\n" for k, v in colors.items())
-            + WINDOW_CSS
-            + panel.scope(PAGE_CSS, "own")
-        )
-        for key, (_panel, mod, provider) in self.panels.items():
-            mod.P = palette.load(self.theme, **mod.ALIASES)  # colors it draws with itself
-            provider.load_from_string(panel.scoped_css(mod.STYLE, mod.P, "panel-" + key))
+        try:
+            self.provider.load_from_string(
+                fonts.swap(
+                    "".join(f"@define-color {k} {v};\n" for k, v in colors.items())
+                    + WINDOW_CSS
+                    + panel.scope(PAGE_CSS, "own")
+                )
+            )
+        except Exception:  # noqa: BLE001 - one bad style must not blank every page
+            traceback.print_exc()
+        for key, panels in self.panels.items():
+            for _panel, mod, provider in panels:
+                mod.P = palette.load(self.theme, **mod.ALIASES)  # colors it draws with itself
+                try:
+                    provider.load_from_string(
+                        fonts.swap(panel.scoped_css(mod.STYLE, mod.P, "panel-" + key))
+                    )
+                except Exception:  # noqa: BLE001 - keep the panel's last good style
+                    traceback.print_exc()
 
     def build(self):
         popup_backdrop.smooth_text()
@@ -389,6 +418,7 @@ class Settings(Gtk.Application):
         self.pages = dict(
             theme=self.theme_page,
             wallpaper=self.wallpaper_page,
+            fonts=self.fonts_page,
             notifications=self.notifications_page,
             keyboard=self.keyboard_page,
             look=self.look_page,
@@ -406,29 +436,49 @@ class Settings(Gtk.Application):
         keys.connect("key-pressed", self.on_key)
         win.add_controller(keys)
         self.show_page(self.page)
+        GLib.idle_add(self.prefetch_panel)
 
     def scrolled(self, child):
         sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+        sw.set_child(self.own(child))
+        return sw
+
+    def own(self, child):
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         wrap.add_css_class("own")
         wrap.append(child)
-        sw.set_child(wrap)
-        return sw
+        return wrap
 
     def rebuild(self, key):
-        """Draw a page again (after a theme or wallpaper change)."""
-        old = self.stack.get_child_by_name(key)
-        self.stack.remove(old)
-        self.stack.add_named(self.scrolled(self.pages[key]()), key)
-        if self.page == key:
-            self.stack.set_visible_child_name(key)
+        """Draw a page again (after a theme's save, rename or delete, or a
+        wallpaper change) in the same ScrolledWindow, keeping its scroll: once
+        GTK has laid out the new page, the scroll goes back to where it was,
+        clamped to the new height, one time."""
+        sw = self.stack.get_child_by_name(key)
+        adj = sw.get_vadjustment()
+        pos = adj.get_value()
+        sw.set_child(self.own(self.pages[key]()))
+        if pos <= 0:
+            return
+
+        def when_laid_out(_adj):
+            bottom = adj.get_upper() - adj.get_page_size()
+            if adj.get_upper() <= 0:
+                return  # not laid out yet
+            adj.disconnect(handler_id)
+            adj.set_value(min(pos, max(0, bottom)))
+
+        handler_id = adj.connect("changed", when_laid_out)
 
     def show_page(self, key):
         if key != self.page:
             self.panel_hidden(self.page)
         self.page = key
         if key in PANELS and key not in self.panels:
-            self.build_panel(key)
+            try:
+                self.build_panel(key)
+            except Exception:  # noqa: BLE001 - show what built, never a blank page
+                traceback.print_exc()
         self.stack.set_visible_child_name(key)
         for k, b in self.side_btns.items():
             (b.add_css_class if k == key else b.remove_css_class)("active")
@@ -442,28 +492,49 @@ class Settings(Gtk.Application):
 
     # ----- panels (the bar popups' own panels, see panel.py) ---------------------------
     def build_panel(self, key):
-        name, cls = PANELS[key]
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         page.add_css_class("panel-page")
         page.add_css_class("panel-" + key)
-        try:
-            mod = panel.load(name)
-            p = getattr(mod, cls)(PageHost(self, key))
-        except Exception as e:  # noqa: BLE001 - one broken panel must not take Settings down
-            traceback.print_exc()
-            page.append(label(f"This page couldn't start: {e}", "panel-error", xalign=0, wrap=True))
-        else:
+        built = []  # the panels that started; one that fails leaves its error row, the rest go on
+        for name, cls in PANELS[key]:
+            try:
+                mod = panel.load(name)
+                p = getattr(mod, cls)(PageHost(self, key))
+            except Exception as e:  # noqa: BLE001 - one broken panel must not take Settings down
+                traceback.print_exc()
+                page.append(label(f"This page couldn't start: {e}", "panel-error", xalign=0, wrap=True))
+                continue
             provider = Gtk.CssProvider()
             Gtk.StyleContext.add_provider_for_display(
                 Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER
             )
-            self.panels[key] = (p, mod, provider)
-            self.apply_css()
+            built.append((p, mod, provider))
             page.append(p.root)
+        self.panels[key] = built
+        self.apply_css()
         self.stack.remove(self.stack.get_child_by_name(key))
         sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
         sw.set_child(page)
         self.stack.add_named(sw, key)
+
+    def prefetch_panel(self):
+        """Build the next panel page that is not built yet and let it read the
+        system once, while nobody looks: a page opened later shows its data at
+        once, as the popups (read at startup, while hidden) do. One page per
+        idle call, so the window stays responsive."""
+        key = next((k for k in PANELS if k not in self.panels and k not in self.prefetched), None)
+        if key is None:
+            return False
+        self.prefetched.add(key)
+        try:
+            self.build_panel(key)
+        except Exception:  # noqa: BLE001 - show_page tries again when it is opened
+            traceback.print_exc()
+            return True
+        self.panel_call(key, "on_show")
+        if not PageHost(self, key).is_shown():
+            self.panel_call(key, "on_hide")
+        return True
 
     def page_shown(self, key):
         """The page just came into view: show what is true now."""
@@ -477,21 +548,30 @@ class Settings(Gtk.Application):
             self.panel_call(key, "on_hide")
 
     def panel_call(self, key, method, *args):
-        """A panel's method; an error in it is printed, and Settings keeps running."""
-        try:
-            return getattr(self.panels[key][0], method)(*args)
-        except Exception:  # noqa: BLE001 - one broken panel must not take Settings down
-            traceback.print_exc()
-            return None
+        """A panel's method; an error in it is printed, and Settings keeps running.
+        The first panel that answers with True wins (e.g. Esc closes an open row)."""
+        answer = None
+        for p, _mod, _provider in self.panels.get(key, ()):
+            fn = getattr(p, method, None)
+            if fn is None:
+                continue
+            try:
+                result = fn(*args)
+            except Exception:  # noqa: BLE001 - one broken panel must not take Settings down
+                traceback.print_exc()
+                continue
+            if answer is None and result is True:
+                answer = True
+                break  # a panel handled it; the rest of the page need not hear it
+        return answer
 
     def on_key(self, _ctl, keyval, _code, state):
-        p = self.panels.get(self.page, (None,))[0]
-        if keyval == Gdk.KEY_Escape and hasattr(p, "on_escape") and self.panel_call(self.page, "on_escape"):
+        if keyval == Gdk.KEY_Escape and self.panel_call(self.page, "on_escape"):
             return True  # e.g. Wi-Fi closes its open row first
         if keyval == Gdk.KEY_Escape or (state & Gdk.ModifierType.CONTROL_MASK and keyval == Gdk.KEY_w):
             self.win.close()
             return True
-        if hasattr(p, "on_key") and keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):  # Tab moves the focus
+        if keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):  # Tab moves the focus
             return bool(self.panel_call(self.page, "on_key", keyval))  # e.g. Enter applies on Displays
         return False
 
@@ -510,6 +590,8 @@ class Settings(Gtk.Application):
             "lock screen and wallpaper all switch together.",
         )
         current = palette.current()
+        self.theme_cards = {}  # theme id -> (its card button, the box its "in use" badge goes in)
+        self.theme_badge = label("in use", "badge")
         flow = Gtk.FlowBox(
             selection_mode=Gtk.SelectionMode.NONE,
             homogeneous=True,
@@ -533,15 +615,12 @@ class Settings(Gtk.Application):
             custom = bool((palette.read(tid) or {}).get("custom"))
             b = Gtk.Button(can_focus=True)
             b.add_css_class("card")
-            if tid == current:
-                b.add_css_class("current")
             inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             inner.append(swatch(colors))
             top = Gtk.Box(spacing=6)
             top.append(label(name, "name", xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END))
-            if tid == current:
-                top.append(label("in use", "badge"))
             inner.append(top)
+            self.theme_cards[tid] = (b, top)
             inner.append(
                 label(
                     character or ("Your own theme" if custom else "The original Everforest look"),
@@ -567,7 +646,19 @@ class Settings(Gtk.Application):
             else:
                 flow.append(b)
         box.append(flow)
+        self.mark_theme(current)
         return box
+
+    def mark_theme(self, tid):
+        """Move the "in use" badge and the current style to tid's card, in place:
+        the page is not rebuilt, so its scroll stays where it is."""
+        parent = self.theme_badge.get_parent()
+        if parent is not None:
+            parent.remove(self.theme_badge)
+        for t, (card, top) in self.theme_cards.items():
+            (card.add_css_class if t == tid else card.remove_css_class)("current")
+            if t == tid:
+                top.append(self.theme_badge)
 
     def rename_button(self, theme_id, name):
         """A button whose popover renames a custom theme in place."""
@@ -671,7 +762,7 @@ class Settings(Gtk.Application):
         def done(_r):
             self.busy = False
             self.apply_css()
-            self.rebuild("theme")
+            self.mark_theme(palette.current())
             self.rebuild("wallpaper")
 
         in_background(lambda: subprocess.run([THEME_PY, "apply", tid], capture_output=True, timeout=20), done)
@@ -933,6 +1024,110 @@ class Settings(Gtk.Application):
             if isinstance(result, Exception):
                 self.wall_error = f"Couldn't use that picture: {result}"
             self.rebuild("wallpaper")
+
+        in_background(work, done)
+
+    # ----- fonts ---------------------------------------------------------------------
+    def fonts_page(self):
+        """The desktop's two fonts. Apply writes them into the generated files
+        (theme.py write), reloads swaync, restarts the popups and restyles this
+        window, so every surface picks them up at once."""
+        box = self.page_box(
+            "Fonts",
+            "The English (mono) and the Persian font of the bar, popups, notifications, "
+            "lock screen and kitty. Saved in ~/.config/hypr/user-settings.json.",
+        )
+        s = store.load()
+        self.font_lists = dict(en=self.installed_fonts(mono=True), fa=self.installed_fonts())
+        self.font_en_choice = self.font_chooser(self.font_lists["en"], s["font_en"])
+        box.append(self.font_row("English font", "The mono family, used first everywhere.",
+                                 self.font_en_choice))
+        self.font_fa_choice = self.font_chooser(self.font_lists["fa"], s["font_fa"])
+        box.append(self.font_row("Persian font", "The family that draws Persian text.",
+                                 self.font_fa_choice))
+
+        box.append(label("SAMPLE", "section", xalign=0))
+        self.font_sample = label(xalign=0)
+        self.font_sample.add_css_class("row")
+        box.append(self.font_sample)
+        for choice in (self.font_en_choice, self.font_fa_choice):
+            choice.connect("notify::selected", lambda *_: self.update_font_sample())
+        self.update_font_sample()
+
+        self.font_error = label("", "error", xalign=0, wrap=True, visible=False)
+        box.append(self.font_error)
+        self.font_apply_btn = Gtk.Button(label="Apply")
+        self.font_apply_btn.add_css_class("act")
+        self.font_apply_btn.add_css_class("primary")
+        self.font_apply_btn.connect("clicked", lambda *_: self.apply_fonts())
+        acts = Gtk.Box(spacing=8, margin_top=8, halign=Gtk.Align.END)
+        acts.append(self.font_apply_btn)
+        box.append(acts)
+        return box
+
+    def installed_fonts(self, mono=False):
+        """The font families this machine has, alphabetically; mono ones only
+        when asked (the English font of a desktop is its mono face)."""
+        try:
+            families = PangoCairo.FontMap.get_default().list_families()
+            names = sorted({f.get_name() for f in families if not mono or f.is_monospace()})
+        except Exception:  # noqa: BLE001 - no font map (a test box): just the default
+            names = []
+        return names or [fonts.EN]
+
+    def font_chooser(self, names, current):
+        drop = Gtk.DropDown.new_from_strings(names)
+        drop.set_selected(names.index(current) if current in names else 0)
+        return drop
+
+    def font_row(self, title, desc, choice):
+        row, _text = self.row(title, desc)
+        choice.set_valign(Gtk.Align.CENTER)
+        row.append(choice)
+        return row
+
+    def chosen_fonts(self):
+        return (self.font_lists["en"][self.font_en_choice.get_selected()],
+                self.font_lists["fa"][self.font_fa_choice.get_selected()])
+
+    def update_font_sample(self):
+        en, fa = self.chosen_fonts()
+        self.font_sample.set_markup(
+            f'<span font_family="{GLib.markup_escape_text(en, -1)}" weight="bold" size="14000">'
+            f"12:34 Settings</span>    "
+            f'<span font_family="{GLib.markup_escape_text(fa, -1)}" size="14000">نمونه ۱۲:۳۴</span>'
+        )
+
+    def apply_fonts(self):
+        if self.busy:
+            return
+        en, fa = self.chosen_fonts()
+        self.busy = True
+        self.font_apply_btn.set_label("Applying…")
+        self.font_apply_btn.set_sensitive(False)
+
+        def work():
+            store.save(dict(store.load(), font_en=en, font_fa=fa))
+            return subprocess.run([THEME_PY, "write"], capture_output=True, timeout=30).returncode
+
+        def done(result):
+            self.busy = False
+            if isinstance(result, Exception) or result != 0:
+                self.font_error.set_label(f"Couldn't apply the fonts: {result}")
+                self.font_error.set_visible(True)
+                self.font_apply_btn.set_label("Apply")
+                self.font_apply_btn.set_sensitive(True)
+                return
+            self.font_error.set_visible(False)
+            swaync("--reload-css")
+            spawn([os.path.join(SCRIPTS, "popup.sh"), "--restart"])  # they rebuild their CSS
+            self.apply_css()  # this window, right now
+            self.font_apply_btn.set_label("Applied ✓")
+            GLib.timeout_add_seconds(
+                2,
+                lambda: (self.font_apply_btn.set_label("Apply"),
+                         self.font_apply_btn.set_sensitive(True), False)[2],
+            )
 
         in_background(work, done)
 

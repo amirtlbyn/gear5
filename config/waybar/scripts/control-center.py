@@ -46,6 +46,7 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -184,7 +185,7 @@ button.footer:hover { background: @bg2; }
 .popup switch:checked { background: @green; }
 .popup switch slider { background: @fg; border: none; border-radius: 12px; box-shadow: none; }
 """
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE)
 
 I_WIFI, I_WIFI_OFF = "\U000f05a9", "\U000f05aa"
 I_BT, I_BT_OFF, I_BT_ON = "\U000f00af", "\U000f00b2", "\U000f00b1"
@@ -779,115 +780,28 @@ class BluetoothPanel:
         run_bg(work, done)
 
 
-class ControlCenter(Gtk.Application):
-    def __init__(self):
-        super().__init__(application_id="io.local.controlcenter")
-        self.win = None
-        self.st = None
-        self.bt = None
-        self.ddc_pending = {}
-        self.ddc_busy = set()
-        self.ddc_lock = threading.Lock()
-        self.screens_read = False
-        self.updating = False
-        self.bright_open = False
-        self.screen_scales = []
-        self.start_hidden = "--hidden" in sys.argv
+class BatteryPanel:
+    """Battery charge and power mode (saver / balanced / speed). Part of the
+    quick settings popup below, and a part of Settings' Power & sleep page
+    (see panel.py for the host); in the popup, the popup reads everything at
+    once (host.refresh), in Settings the panel reads it itself."""
 
-    # ----- host of the Bluetooth panel (see panel.py) ------------------------------
-    embedded = False
-
-    def close(self):
-        self.win.close()
-
-    def is_shown(self):
-        return self.win is not None and self.win.get_visible()
-
-    # every later launch (clicking the bar box) opens or closes the same window
-    def do_activate(self):
-        if self.win is None:
-            self.hold()   # keep running while hidden, so the next open is instant
-            self.build()
+    def __init__(self, host):
+        self.host = host
+        self.build()
+        if host.embedded:
             GLib.timeout_add_seconds(3, self._tick)
-            if self.start_hidden:
-                self.refresh()
-                return
-        if self.win.get_visible():
-            self.win.close()
-        elif GLib.get_monotonic_time() - getattr(self, 'closed_at', 0) > 400_000:
-            # the click that just closed it (outside the popup, on the bar icon)
-            # also reaches the bar, which asks to open it again: ignore that one
-            self.show_popup()
 
-    def show_popup(self):
-        self.place()
-        self.screens_read = False    # screens may have changed since last time
-        self.win.present()
-        self.bt.on_show()            # clears its status line and refreshes everything
-
-    def on_close(self, win):
-        self.bt.on_hide()
-        self.closed_at = GLib.get_monotonic_time()
-        win.set_visible(False)   # hide, don't destroy
-        return True
-
-    def place(self):
-        """Put the popup right under the mouse, on whichever screen it is."""
-        if not self.layered:
-            return
-        popup, full = self.popup, WIDTH + 36
-        cursor = self.cursor_offset()
-        if cursor:
-            frac, screen_w = cursor
-            popup.set_halign(Gtk.Align.START)
-            popup.set_margin_end(0)
-            popup.set_margin_start(max(0, min(int(frac * screen_w - full / 2), int(screen_w) - full)))
-        else:
-            popup.set_halign(Gtk.Align.END)
-            popup.set_margin_end(100)
-
-    def do_shutdown(self):
-        if self.bt:
-            self.bt.stop()
-        Gtk.Application.do_shutdown(self)
-
-    @staticmethod
-    def cursor_offset():
-        import json
-        try:
-            pos = json.loads(run("hyprctl", "-j", "cursorpos", timeout=2)[1])
-            mon = next(m for m in json.loads(run("hyprctl", "-j", "monitors", timeout=2)[1]) if m.get("focused"))
-            width = (mon["height"] if mon.get("transform", 0) % 2 else mon["width"]) / mon["scale"]
-            return (pos["x"] - mon["x"]) / (width or 1), width
-        except (ValueError, KeyError, StopIteration):
-            return None
-
-    # ----- layout ------------------------------------------------------------
     def build(self):
-        prov = Gtk.CssProvider()
-        if hasattr(prov, "load_from_string"):
-            prov.load_from_string(CSS)
-        else:
-            prov.load_from_data(CSS, -1)
-        add = getattr(Gtk, "style_context_add_provider_for_display", None) \
-            or Gtk.StyleContext.add_provider_for_display
-        add(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        if self.host.embedded:
+            root.add_css_class("popup")
+            title = Gtk.Box(spacing=10, margin_bottom=6)
+            title.append(label(f"{I_POWER}  Battery", "title", xalign=0, hexpand=True))
+            root.append(title)
 
-        win = Gtk.ApplicationWindow(application=self, title="Quick settings")
-        win.connect("close-request", self.on_close)
-        win.add_css_class("control-center")
-        win.set_decorated(False)
-        self.win = win
-
-        popup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        popup.add_css_class("popup")
-        self.popup = popup
-        popup.set_size_request(WIDTH, -1)
-
-        # battery + power mode
-        bat = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        bat.add_css_class("battery")
-        self.bat_box = bat
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.card.add_css_class("battery")
         top = Gtk.Box(spacing=12)
         self.bat_icon = label(css="bat-icon")
         top.append(self.bat_icon)
@@ -897,7 +811,7 @@ class ControlCenter(Gtk.Application):
         text.append(self.bat_pct)
         text.append(self.bat_text)
         top.append(text)
-        bat.append(top)
+        self.card.append(top)
         self.segment = Gtk.Box(homogeneous=True)
         self.segment.add_css_class("segment")
         self.profile_btns = {}
@@ -906,177 +820,107 @@ class ControlCenter(Gtk.Application):
             b.connect("clicked", lambda _b, k=key: self.set_profile(k))
             self.profile_btns[key] = b
             self.segment.append(b)
-        bat.append(self.segment)
-        popup.append(bat)
+        self.card.append(self.segment)
+        self.status = label(css="status", xalign=0, wrap=True)
+        self.status.set_visible(False)
+        self.card.append(self.status)
+        root.append(self.card)
+        self.root = root
 
-        # tiles
-        grid = Gtk.Grid(column_spacing=8, row_spacing=8, column_homogeneous=True, margin_top=12)
-        self.t_wifi = Tile(self.open_wifi)
-        self.t_bt = Tile(self.toggle_bt)
-        self.t_dnd = Tile(self.toggle_dnd)
-        self.t_awake = Tile(self.toggle_awake)
-        grid.attach(self.t_wifi, 0, 0, 1, 1)
-        grid.attach(self.t_bt, 1, 0, 1, 1)
-        grid.attach(self.t_dnd, 0, 1, 1, 1)
-        grid.attach(self.t_awake, 1, 1, 1, 1)
-        popup.append(grid)
+    def on_show(self):
+        self.set_status()
+        self.refresh()
 
-        # brightness, one slider per screen (filled in once the screens are read)
-        self.bright = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.bright.add_css_class("card")
-        self.bright.set_margin_top(8)
-        self.bright.set_visible(False)
-        popup.append(self.bright)
+    def on_hide(self):
+        pass
 
-        # bluetooth
-        self.bt = BluetoothPanel(self)
-        popup.append(self.bt.root)
-
-        footer = Gtk.Box(spacing=8, homogeneous=True)
-        for text_, action in ((f"{I_SETTINGS}   Settings", self.open_settings),
-                              (f"{I_POWER}   Power menu", self.open_power)):
-            b = Gtk.Button(label=text_)
-            b.add_css_class("footer")
-            b.connect("clicked", action)
-            footer.append(b)
-        popup.append(footer)
-
-        keys = Gtk.EventControllerKey()
-        keys.connect("key-pressed", self.on_key)
-        win.add_controller(keys)
-
-        if LS is not None and (not hasattr(LS, "is_supported") or LS.is_supported()):
-            LS.init_for_window(win)
-            LS.set_namespace(win, "control-center")
-            LS.set_layer(win, LS.Layer.OVERLAY)
-            for edge in (LS.Edge.TOP, LS.Edge.BOTTOM, LS.Edge.LEFT, LS.Edge.RIGHT):
-                LS.set_anchor(win, edge, True)
-            LS.set_exclusive_zone(win, -1)
-            LS.set_keyboard_mode(win, LS.KeyboardMode.EXCLUSIVE)
-            popup_backdrop.attach(win)   # clicks on the other screens close it too
-
-            backdrop = Gtk.Box(hexpand=True, vexpand=True)
-            backdrop.add_css_class("backdrop")
-            click = Gtk.GestureClick()
-            click.connect("pressed", lambda *_: win.close())
-            backdrop.add_controller(click)
-
-            popup.set_valign(Gtk.Align.START)
-            popup.set_margin_top(64)
-            self.layered = True
-            overlay = Gtk.Overlay()
-            overlay.set_child(backdrop)
-            overlay.add_overlay(popup)
-            win.set_child(overlay)
-        else:
-            win.set_child(popup)
-            win.connect("notify::is-active", lambda w, _p: None if w.is_active() else w.close())
-            self.layered = False
-
-    # ----- state -------------------------------------------------------------
     def _tick(self):
-        if self.win.get_visible() and not self.bt.busy:
+        if self.host.is_shown():
             self.refresh()
         return True
 
     def refresh(self):
-        scanning = self.bt.scanner is not None
-        screens = not self.screens_read   # talking to monitors is slow: once per opening
-        self.screens_read = True
-        run_bg(lambda: read_state(scanning, screens), self.apply)
-
-    def apply(self, st):
-        if self.win is None:
+        if not self.host.embedded:
+            self.host.refresh()  # the popup reads everything at once
             return
-        self.st = st
-        b = st["battery"]
-        self.bat_box.set_visible(b is not None or st["profile"] is not None)
-        if b:
-            self.bat_icon.set_label(battery_icon(b["pct"], b["charging"]))
-            self.bat_pct.set_label(f"{b['pct']}%")
-            self.bat_text.set_label(b["text"])
-            (self.bat_box.add_css_class if b["pct"] <= 20 and not b["charging"]
-             else self.bat_box.remove_css_class)("low")
-        self.segment.set_visible(st["profile"] is not None)
+        run_bg(lambda: (read_battery(), read_profile()), lambda r: self.apply(*r))
+
+    def set_status(self, text="", error=False):
+        self.status.set_label(text)
+        self.status.set_visible(bool(text))
+        (self.status.add_css_class if error else self.status.remove_css_class)("error")
+
+    def apply(self, battery, profile):
+        self.root.set_visible(battery is not None or profile is not None)
+        if battery:
+            self.bat_icon.set_label(battery_icon(battery["pct"], battery["charging"]))
+            self.bat_pct.set_label(f"{battery['pct']}%")
+            self.bat_text.set_label(battery["text"])
+            (self.card.add_css_class if battery["pct"] <= 20 and not battery["charging"]
+             else self.card.remove_css_class)("low")
+        self.segment.set_visible(profile is not None)
         for key, btn in self.profile_btns.items():
-            (btn.add_css_class if key == st["profile"] else btn.remove_css_class)("active")
+            (btn.add_css_class if key == profile else btn.remove_css_class)("active")
 
-        wifi_on, ssid = st["wifi"]
-        self.t_wifi.set(I_WIFI if wifi_on else I_WIFI_OFF, "Wi-Fi",
-                        ssid or ("Not connected" if wifi_on else "Off"), wifi_on and bool(ssid))
-        bt = st["bt"]
-        connected = [d for d in bt["paired"] if d["connected"]]
-        n = len(connected)
-        charges = [f"{d['battery']}%" for d in connected if d["battery"] is not None]
-        if n == 1:
-            bt_sub = connected[0]["name"] + (f" · {charges[0]}" if charges else "")
-        elif n:
-            bt_sub = f"{n} connected" + (f" · {' '.join(charges)}" if charges else "")
-        else:
-            bt_sub = "On" if bt["powered"] else "Off"
-        self.t_bt.set(I_BT_ON if n else I_BT if bt["powered"] else I_BT_OFF, "Bluetooth",
-                      bt_sub, bt["powered"])
-        self.t_dnd.set(I_DND if st["dnd"] else I_BELL, "Do Not Disturb",
-                       "On" if st["dnd"] else "Off", st["dnd"])
-        awake = st["idle"] == "awake"
-        self.t_awake.set(I_COFFEE if awake else I_SLEEP, "Stay awake",
-                         "On" if awake else "Off", awake)
-
-        if st["screens"] is not None:
-            self.apply_screens(st["screens"])
-
-        self.bt.apply(bt)
-
-    # ----- actions -----------------------------------------------------------
     def set_profile(self, key):
         def work():
             return run("busctl", "--system", "set-property", *PP, "s", key, timeout=5)
 
         def done(res):
             if res[0] != 0:
-                self.bt.set_status(res[2].strip() or "Couldn't change power mode", error=True)
+                self.set_status(res[2].strip() or "Couldn't change power mode", error=True)
             self.refresh()
         for k, btn in self.profile_btns.items():
             (btn.add_css_class if k == key else btn.remove_css_class)("active")
         run_bg(work, done)
 
-    def open_wifi(self):
-        spawn(os.path.join(HERE, "popup.sh"), "wifi-menu", THEME)
-        self.win.close()
 
-    def toggle_bt(self):
-        self.bt.set_power(not (self.st and self.st["bt"]["powered"]))
+class BrightnessPanel:
+    """One brightness slider per screen: the laptop backlight, external screens
+    over DDC/CI, and a software dimmer for screens that can't change their own.
+    Part of the quick settings popup below, and of Settings' Power & sleep page
+    (see panel.py for the host). Reading the screens is slow, so it happens on
+    each showing, not on a timer; in the popup, the popup reads them once per
+    opening and pushes them in (host.refresh)."""
 
-    def toggle_dnd(self):
-        on = not (self.st and self.st["dnd"])
-        run_bg(lambda: run("swaync-client", "-dn" if on else "-df", timeout=3), lambda _r: self.refresh())
+    def __init__(self, host):
+        self.host = host
+        self.ddc_pending = {}
+        self.ddc_busy = set()
+        self.ddc_lock = threading.Lock()
+        self.updating = False
+        self.bright_open = False
+        self.screen_scales = []
+        self.build()
 
-    def toggle_awake(self):
-        awake = self.st and self.st["idle"] == "awake"
+    def build(self):
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        if self.host.embedded:
+            root.add_css_class("popup")  # so ".popup scale …" styles its sliders
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.card.add_css_class("card")
+        self.card.set_margin_top(8)
+        self.card.set_visible(False)
+        root.append(self.card)
+        self.root = root
 
-        def work():
-            if awake:
-                prev = "sleep 5"
-                try:
-                    with open(IDLE_PREV) as f:
-                        prev = f.read().strip() or prev
-                except OSError:
-                    pass
-                return run(IDLE, "set", *prev.split(), timeout=10)
-            _, cur, _ = run(IDLE, "get", timeout=3)
-            try:
-                with open(IDLE_PREV, "w") as f:
-                    f.write(cur.strip())
-            except OSError:
-                pass
-            return run(IDLE, "set", "awake", timeout=10)
-        run_bg(work, lambda _r: self.refresh())
+    def on_show(self):
+        self.refresh()
+
+    def on_hide(self):
+        pass
+
+    def refresh(self):
+        if not self.host.embedded:
+            self.host.refresh()  # the popup reads everything at once
+            return
+        run_bg(read_screens, self.apply_screens)
 
     def apply_screens(self, screens):
         """One main slider for every screen, and a drawer with a slider per screen."""
-        while (child := self.bright.get_first_child()) is not None:
-            self.bright.remove(child)
-        self.bright.set_visible(bool(screens))
+        while (child := self.card.get_first_child()) is not None:
+            self.card.remove(child)
+        self.card.set_visible(bool(screens))
         self.screen_scales = []
         if not screens:
             return
@@ -1093,14 +937,14 @@ class ControlCenter(Gtk.Application):
             self.chevron.set_tooltip_text("Each screen on its own")
             self.chevron.connect("clicked", lambda *_: self.toggle_drawer())
             head.append(self.chevron)
-        self.bright.append(head)
+        self.card.append(head)
 
         self.master = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 100, 1)
         self.master.set_hexpand(True)
         self.master.set_draw_value(False)
         self.master.set_tooltip_text("All screens")
         self.master.connect("value-changed", self.on_master)
-        self.bright.append(self.master)
+        self.card.append(self.master)
 
         self.drawer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
                                    transition_duration=220)
@@ -1134,7 +978,7 @@ class ControlCenter(Gtk.Application):
             self.screen_scales.append((sc, scale, pct, low))
         self.drawer.set_child(rows)
         self.drawer.set_reveal_child(self.bright_open and len(screens) > 1)
-        self.bright.append(self.drawer)
+        self.card.append(self.drawer)
         self.sync_master()
         self.update_chevron()
 
@@ -1215,7 +1059,249 @@ class ControlCenter(Gtk.Application):
                 run("ddcutil", "--bus", bus, "--noverify", "setvcp", "10", str(target), timeout=10)
         threading.Thread(target=work, daemon=True).start()
 
-    # ----- misc --------------------------------------------------------------
+
+class ControlCenter(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="io.local.controlcenter")
+        self.win = None
+        self.st = None
+        self.bt = None
+        self.screens_read = False
+        self.start_hidden = "--hidden" in sys.argv
+
+    # ----- host of the Bluetooth panel (see panel.py) ------------------------------
+    embedded = False
+
+    def close(self):
+        self.win.close()
+
+    def is_shown(self):
+        return self.win is not None and self.win.get_visible()
+
+    # every later launch (clicking the bar box) opens or closes the same window
+    def do_activate(self):
+        if self.win is None:
+            self.hold()   # keep running while hidden, so the next open is instant
+            self.build()
+            GLib.timeout_add_seconds(3, self._tick)
+            if self.start_hidden:
+                self.refresh()
+                return
+        if self.win.get_visible():
+            self.win.close()
+        elif GLib.get_monotonic_time() - getattr(self, 'closed_at', 0) > 400_000:
+            # the click that just closed it (outside the popup, on the bar icon)
+            # also reaches the bar, which asks to open it again: ignore that one
+            self.show_popup()
+
+    def show_popup(self):
+        self.place()
+        self.screens_read = False    # screens may have changed since last time
+        self.win.present()
+        self.bt.on_show()            # clears its status line and refreshes everything
+        self.bat.set_status()        # the battery card's error line from last time
+
+    def on_close(self, win):
+        self.bt.on_hide()
+        self.closed_at = GLib.get_monotonic_time()
+        win.set_visible(False)   # hide, don't destroy
+        return True
+
+    def place(self):
+        """Put the popup right under the mouse, on whichever screen it is."""
+        if not self.layered:
+            return
+        popup, full = self.popup, WIDTH + 36
+        cursor = self.cursor_offset()
+        if cursor:
+            frac, screen_w = cursor
+            popup.set_halign(Gtk.Align.START)
+            popup.set_margin_end(0)
+            popup.set_margin_start(max(0, min(int(frac * screen_w - full / 2), int(screen_w) - full)))
+        else:
+            popup.set_halign(Gtk.Align.END)
+            popup.set_margin_end(100)
+
+    def do_shutdown(self):
+        if self.bt:
+            self.bt.stop()
+        Gtk.Application.do_shutdown(self)
+
+    @staticmethod
+    def cursor_offset():
+        import json
+        try:
+            pos = json.loads(run("hyprctl", "-j", "cursorpos", timeout=2)[1])
+            mon = next(m for m in json.loads(run("hyprctl", "-j", "monitors", timeout=2)[1]) if m.get("focused"))
+            width = (mon["height"] if mon.get("transform", 0) % 2 else mon["width"]) / mon["scale"]
+            return (pos["x"] - mon["x"]) / (width or 1), width
+        except (ValueError, KeyError, StopIteration):
+            return None
+
+    # ----- layout ------------------------------------------------------------
+    def build(self):
+        prov = Gtk.CssProvider()
+        if hasattr(prov, "load_from_string"):
+            prov.load_from_string(CSS)
+        else:
+            prov.load_from_data(CSS, -1)
+        add = getattr(Gtk, "style_context_add_provider_for_display", None) \
+            or Gtk.StyleContext.add_provider_for_display
+        add(Gdk.Display.get_default(), prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
+
+        win = Gtk.ApplicationWindow(application=self, title="Quick settings")
+        win.connect("close-request", self.on_close)
+        win.add_css_class("control-center")
+        win.set_decorated(False)
+        self.win = win
+
+        popup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        popup.add_css_class("popup")
+        self.popup = popup
+        popup.set_size_request(WIDTH, -1)
+
+        # battery + power mode
+        self.bat = BatteryPanel(self)
+        popup.append(self.bat.root)
+
+        # tiles
+        grid = Gtk.Grid(column_spacing=8, row_spacing=8, column_homogeneous=True, margin_top=12)
+        self.t_wifi = Tile(self.open_wifi)
+        self.t_bt = Tile(self.toggle_bt)
+        self.t_dnd = Tile(self.toggle_dnd)
+        self.t_awake = Tile(self.toggle_awake)
+        grid.attach(self.t_wifi, 0, 0, 1, 1)
+        grid.attach(self.t_bt, 1, 0, 1, 1)
+        grid.attach(self.t_dnd, 0, 1, 1, 1)
+        grid.attach(self.t_awake, 1, 1, 1, 1)
+        popup.append(grid)
+
+        # brightness, one slider per screen (filled in once the screens are read)
+        self.bright = BrightnessPanel(self)
+        popup.append(self.bright.root)
+
+        # bluetooth
+        self.bt = BluetoothPanel(self)
+        popup.append(self.bt.root)
+
+        footer = Gtk.Box(spacing=8, homogeneous=True)
+        for text_, action in ((f"{I_SETTINGS}   Settings", self.open_settings),
+                              (f"{I_POWER}   Power menu", self.open_power)):
+            b = Gtk.Button(label=text_)
+            b.add_css_class("footer")
+            b.connect("clicked", action)
+            footer.append(b)
+        popup.append(footer)
+
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        win.add_controller(keys)
+
+        if LS is not None and (not hasattr(LS, "is_supported") or LS.is_supported()):
+            LS.init_for_window(win)
+            LS.set_namespace(win, "control-center")
+            LS.set_layer(win, LS.Layer.OVERLAY)
+            for edge in (LS.Edge.TOP, LS.Edge.BOTTOM, LS.Edge.LEFT, LS.Edge.RIGHT):
+                LS.set_anchor(win, edge, True)
+            LS.set_exclusive_zone(win, -1)
+            LS.set_keyboard_mode(win, LS.KeyboardMode.EXCLUSIVE)
+            popup_backdrop.attach(win)   # clicks on the other screens close it too
+
+            backdrop = Gtk.Box(hexpand=True, vexpand=True)
+            backdrop.add_css_class("backdrop")
+            click = Gtk.GestureClick()
+            click.connect("pressed", lambda *_: win.close())
+            backdrop.add_controller(click)
+
+            popup.set_valign(Gtk.Align.START)
+            popup.set_margin_top(64)
+            self.layered = True
+            overlay = Gtk.Overlay()
+            overlay.set_child(backdrop)
+            overlay.add_overlay(popup)
+            win.set_child(overlay)
+        else:
+            win.set_child(popup)
+            win.connect("notify::is-active", lambda w, _p: None if w.is_active() else w.close())
+            self.layered = False
+
+    # ----- state -------------------------------------------------------------
+    def _tick(self):
+        if self.win.get_visible() and not self.bt.busy:
+            self.refresh()
+        return True
+
+    def refresh(self):
+        scanning = self.bt.scanner is not None
+        screens = not self.screens_read   # talking to monitors is slow: once per opening
+        self.screens_read = True
+        run_bg(lambda: read_state(scanning, screens), self.apply)
+
+    def apply(self, st):
+        if self.win is None:
+            return
+        self.st = st
+        self.bat.apply(st["battery"], st["profile"])
+
+        wifi_on, ssid = st["wifi"]
+        self.t_wifi.set(I_WIFI if wifi_on else I_WIFI_OFF, "Wi-Fi",
+                        ssid or ("Not connected" if wifi_on else "Off"), wifi_on and bool(ssid))
+        bt = st["bt"]
+        connected = [d for d in bt["paired"] if d["connected"]]
+        n = len(connected)
+        charges = [f"{d['battery']}%" for d in connected if d["battery"] is not None]
+        if n == 1:
+            bt_sub = connected[0]["name"] + (f" · {charges[0]}" if charges else "")
+        elif n:
+            bt_sub = f"{n} connected" + (f" · {' '.join(charges)}" if charges else "")
+        else:
+            bt_sub = "On" if bt["powered"] else "Off"
+        self.t_bt.set(I_BT_ON if n else I_BT if bt["powered"] else I_BT_OFF, "Bluetooth",
+                      bt_sub, bt["powered"])
+        self.t_dnd.set(I_DND if st["dnd"] else I_BELL, "Do Not Disturb",
+                       "On" if st["dnd"] else "Off", st["dnd"])
+        awake = st["idle"] == "awake"
+        self.t_awake.set(I_COFFEE if awake else I_SLEEP, "Stay awake",
+                         "On" if awake else "Off", awake)
+
+        if st["screens"] is not None:
+            self.bright.apply_screens(st["screens"])
+
+        self.bt.apply(bt)
+
+    # ----- actions -----------------------------------------------------------
+    def open_wifi(self):
+        spawn(os.path.join(HERE, "popup.sh"), "wifi-menu", THEME)
+        self.win.close()
+
+    def toggle_bt(self):
+        self.bt.set_power(not (self.st and self.st["bt"]["powered"]))
+
+    def toggle_dnd(self):
+        on = not (self.st and self.st["dnd"])
+        run_bg(lambda: run("swaync-client", "-dn" if on else "-df", timeout=3), lambda _r: self.refresh())
+
+    def toggle_awake(self):
+        awake = self.st and self.st["idle"] == "awake"
+
+        def work():
+            if awake:
+                prev = "sleep 5"
+                try:
+                    with open(IDLE_PREV) as f:
+                        prev = f.read().strip() or prev
+                except OSError:
+                    pass
+                return run(IDLE, "set", *prev.split(), timeout=10)
+            _, cur, _ = run(IDLE, "get", timeout=3)
+            try:
+                with open(IDLE_PREV, "w") as f:
+                    f.write(cur.strip())
+            except OSError:
+                pass
+            return run(IDLE, "set", "awake", timeout=10)
+        run_bg(work, lambda _r: self.refresh())
+
     def on_key(self, _ctl, keyval, _code, _state):
         if keyval == Gdk.KEY_Escape:
             self.win.close()

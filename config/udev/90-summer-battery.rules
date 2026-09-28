@@ -1,0 +1,6 @@
+# Settings' Battery page and the battery-limits user service (battery.py) set the
+# charge type (Fast / Standard / Long_Life) without a password: let the wheel
+# group write that one file of the battery, nothing else. Installed by install.sh.
+# Two direct programs, no shell: %p is the battery's kernel path.
+SUBSYSTEM=="power_supply", KERNEL=="BAT*", ACTION=="add|change", TEST=="charge_types", \
+  RUN+="/usr/bin/chgrp wheel /sys%p/charge_types", RUN+="/usr/bin/chmod g+w /sys%p/charge_types"

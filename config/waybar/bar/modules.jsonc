@@ -196,7 +196,7 @@
   "return-type": "json",
   "interval": "once",
   "signal": 10,
-  "on-click": "~/.config/waybar/scripts/popup.sh launcher --minimized"
+  "on-click": "~/.config/waybar/scripts/popup.sh minimized-picker"
 },
 
 "custom/idle": {
