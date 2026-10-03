@@ -350,8 +350,8 @@ def check_displays_brightness():
     return False
 
 
-def sticker_rows(box):
-    """{title: row} of the Stickers page: a row is a Box whose first child holds the title label."""
+def gif_rows(box):
+    """{title: row} of the Theme page's GIF section: a row is a Box whose first child holds the title label."""
     rows, child = {}, box.get_first_child()
     while child is not None:
         first = child.get_first_child() if isinstance(child, Gtk.Box) else None
@@ -362,57 +362,56 @@ def sticker_rows(box):
     return rows
 
 
-def row_widgets(row):
-    widgets, child = [], row.get_first_child().get_next_sibling()
+def button_labels(widget):
+    """The labels of every Gtk.Button under widget."""
+    labels = [widget.get_label()] if isinstance(widget, Gtk.Button) else []
+    child = widget.get_first_child()
     while child is not None:
-        widgets.append(child)
+        labels += button_labels(child)
         child = child.get_next_sibling()
-    return widgets
+    return labels
 
 
 def with_scratch_settings(tmp):
-    """Point the Stickers page at a scratch config: user-settings.json in tmp, a custom theme
-    "nika" in the list, the background work run in place. Returns the undo function."""
-    real = dict(load=settings.store.load, bg=settings.in_background, avail=settings.palette.available)
+    """Point the Theme page's GIF section at a scratch config: user-settings.json in tmp.
+    Returns the undo function."""
+    real = dict(load=settings.store.load)
     os.makedirs(os.path.join(tmp, "hypr"))
     settings.store.load = lambda *_a: real["load"](tmp)
-    settings.palette.available = lambda *_a: [*real["avail"](), ("nika", "Nika", "")]
-    settings.in_background = lambda work, done: done(work())
 
     def undo():
-        settings.store.load, settings.in_background = real["load"], real["bg"]
-        settings.palette.available = real["avail"]
+        settings.store.load = real["load"]
 
     return undo
 
 
-def check_stickers_page():
-    """GIFT-9 (session 1): given a custom theme, when the Stickers page is built, then it has
-    the two switches (on by default) and a row for the custom theme with GIF... and Remove,
-    and the Remove button is off while the theme has no GIF."""
+def check_theme_gif_section():
+    """Live check (spec GIFT): when the Theme page is built, then it has the GIF section with the two
+    switches (on by default) and the Bar GIF plays dropdown, and every card has GIF...
+    and Remove. The Stickers page is gone."""
     with tempfile.TemporaryDirectory() as tmp:
         undo = with_scratch_settings(tmp)
         try:
-            rows = sticker_rows(app.stickers_page())
-            switches = [
-                row_widgets(rows[t])[-1].get_active()
-                for t in ("GIF on the bar", "GIF on theme switch")
-            ]
-            choose, remove = row_widgets(rows["Nika"])
+            page = app.theme_page()
+            rows = gif_rows(page)
+            switches = [rows[t].get_last_child().get_active() for t in ("GIF on the bar", "GIF on theme switch")]
+            dropdown = rows["Bar GIF plays"].get_last_child()
+            buttons = button_labels(page)
         finally:
             undo()
     problems = [
         what
         for what, bad in (
             ("a switch is not on by default", switches != [True, True]),
-            ("the buttons are not GIF... and Remove", (choose.get_label(), remove.get_label()) != ("GIF…", "Remove")),
-            ("Remove is on with no GIF", remove.get_sensitive()),
+            ("Bar GIF plays is not a dropdown", not isinstance(dropdown, Gtk.DropDown)),
+            ("the cards have no GIF... and Remove", "GIF…" not in buttons or "Remove" not in buttons),
+            ("the Stickers page is still there", "stickers" in app.pages),
         )
         if bad
     ]
     for what in problems:
-        failed.append("stickers page")
-        print("FAIL stickers page: " + what, file=sys.stderr)
+        failed.append("theme gif section")
+        print("FAIL theme gif section: " + what, file=sys.stderr)
     return False
 
 
@@ -463,12 +462,13 @@ GLib.timeout_add(1350, visit_power)
 GLib.timeout_add(1400, check_battery_page)
 GLib.timeout_add(1450, check_power_pick)
 GLib.timeout_add(1000, check_displays_brightness)
-GLib.timeout_add(1550, check_stickers_page)
+GLib.timeout_add(1550, check_theme_gif_section)
 GLib.timeout_add(1600, visit_fonts)
 GLib.timeout_add(1500, visit_editor)
 GLib.timeout_add(1500, lambda: open_page("input"))  # the old name of Keyboard & touchpad
 GLib.timeout_add(4000, lambda: expect("keyboard") or open_page("wifi"))
-GLib.timeout_add(6500, lambda: expect("wifi"))
-GLib.timeout_add(7000, finish)
+GLib.timeout_add(6500, lambda: expect("wifi") or open_page("stickers"))  # spec GIFT: the old Stickers page opens Theme
+GLib.timeout_add(9000, lambda: expect("theme"))
+GLib.timeout_add(9500, finish)
 app.run(sys.argv)
 sys.exit(1 if failed else 0)

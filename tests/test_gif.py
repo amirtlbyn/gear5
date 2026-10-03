@@ -338,31 +338,6 @@ def test_the_lock_picture_exists_before_the_first_lock_even_for_a_one_frame_gif(
     assert os.path.realpath(lock).endswith(os.path.join("lock", "000.png"))
 
 
-def test_a_gif_picked_or_removed_in_settings_rewrites_the_lock_picture():
-    """Review of session 3: given the Stickers page, when a GIF is picked or
-    removed for a theme, then Settings copies it and then runs `theme.py lock`,
-    so the next lock shows the GIF or shows no picture."""
-    calls = []
-    fake_theme_gif = type("ThemeGif", (), {"set_gif": staticmethod(lambda t, src: calls.append(("set_gif", t, src)))})
-    fake_subprocess = type("Sub", (), {"run": staticmethod(lambda argv, **_kw: calls.append(("run", argv)))})
-    ns = {
-        "theme_gif": fake_theme_gif,
-        "subprocess": fake_subprocess,
-        "THEME_PY": "theme.py",
-        "in_background": lambda work, done: done(work()),
-    }
-    exec(settings_method("set_sticker_gif"), ns)  # noqa: S102 - the repo's own settings.py source
-    host = type("Host", (), {"busy": False, "rebuild": lambda self, page: calls.append(("rebuild", page))})()
-
-    ns["set_sticker_gif"](host, "zoro", "/tmp/a.gif")
-    ns["set_sticker_gif"](host, "zoro", None)
-
-    assert calls == [
-        ("set_gif", "zoro", "/tmp/a.gif"), ("run", ["theme.py", "lock"]), ("rebuild", "stickers"),
-        ("set_gif", "zoro", None), ("run", ["theme.py", "lock"]), ("rebuild", "stickers"),
-    ]
-
-
 def test_the_lock_player_waits_until_hyprlock_has_locked(tmp_path):
     """Review of session 3 (deep review): given hyprlock still starting (its SIGUSR2
     handler, set only after it locks, is not in SigCgt yet), when frames are due,

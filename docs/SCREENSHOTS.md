@@ -75,7 +75,7 @@ Enter or its number to bring one back, Delete / middle-click / its × to close i
 
 ### Theme
 
-Pick a character; make, edit, rename or delete a custom one.
+Pick a character; make, edit, rename or delete a custom one. The GIF section (the bar GIF, when it plays, the GIF on a theme switch) sits above the cards, and each card has GIF… and Remove.
 
 ![Settings: Theme](screenshots/settings-theme.png)
 
@@ -84,12 +84,6 @@ Pick a character; make, edit, rename or delete a custom one.
 One picture for every theme.
 
 ![Settings: Wallpaper](screenshots/settings-wallpaper.png)
-
-### Stickers
-
-The two sticker switches, and for each theme its glyph, motion and optional GIF, with Preview.
-
-![Settings: Stickers](screenshots/settings-stickers.png)
 
 ### Fonts
 

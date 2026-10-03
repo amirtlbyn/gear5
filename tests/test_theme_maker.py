@@ -124,3 +124,21 @@ def test_rename_and_delete_a_custom_theme_switch_to_summer_night_when_in_use(tmp
     with pytest.raises(ValueError):
         theme_maker.delete("luffy", themes=themes)
     assert os.path.isfile(os.path.join(themes, "luffy.json"))
+
+
+def test_deleting_a_custom_theme_deletes_its_gif(tmp_path):
+    """GIFT-7: given a custom theme with a GIF in themes/ and a built-in theme's GIF,
+    when delete() removes the custom theme, then themes/<id>.gif is gone and the
+    built-in theme's GIF is still there."""
+    config = tmp_path / "config"
+    themes = str(config / "hypr" / "themes")
+    shutil.copytree(THEMES, themes)
+    colors = theme_maker.derive("#2d353b", "#d3c6aa", "#a7c080", "#7fbbb3")
+    theme_id = theme_maker.save("Nika", colors, themes=themes)
+    (config / "hypr" / "themes" / f"{theme_id}.gif").write_bytes(b"GIF89a")
+    (config / "hypr" / "themes" / "luffy.gif").write_bytes(b"GIF89a")
+
+    theme_maker.delete(theme_id, themes=themes, apply=lambda _tid: None)
+
+    assert not (config / "hypr" / "themes" / f"{theme_id}.gif").exists()
+    assert (config / "hypr" / "themes" / "luffy.gif").exists()

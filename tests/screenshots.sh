@@ -130,8 +130,6 @@ shot_popup minimized-picker popup-minimized-picker
 # every Settings page, then the theme editor
 shot_settings theme         settings-theme
 shot_settings wallpaper     settings-wallpaper
-shot_settings lockscreen    settings-lockscreen
-shot_settings stickers      settings-stickers
 shot_settings fonts         settings-fonts
 shot_settings displays      settings-displays
 shot_settings wifi          settings-wifi

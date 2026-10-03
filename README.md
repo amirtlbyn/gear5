@@ -20,7 +20,7 @@ your distro automatically.
 | `SUPER+V` | Clipboard history: filters, **pin** text and pictures (`Ctrl+P`) |
 | `SUPER+.` | Emoji picker (Unicode 18), pastes into the app you were using |
 | `SUPER+P` | **Displays**: Laptop only · Extend · Duplicate · External only, drag to arrange, resolution, scale, rotation, mirror. Keep-or-revert in 15 s; layouts are **remembered per set of screens** and come back when you plug them in |
-| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, a lock screen picture per theme, **Stickers** (a glyph, a motion and an optional GIF for each theme), fonts (English + Persian), displays (per-screen brightness, night light), Wi-Fi, Bluetooth, sound, power & sleep (power mode, the sleep timer), **Battery** (level, health, charge limits: presets, stop/start, speed), notifications, keyboard layouts, touchpad, gaps, animations, the bar background strip, all in one window (no other app opens) |
+| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, an optional GIF for each theme, fonts (English + Persian), displays (per-screen brightness, night light), Wi-Fi, Bluetooth, sound, power & sleep (power mode, the sleep timer), **Battery** (level, health, charge limits: presets, stop/start, speed), notifications, keyboard layouts, touchpad, gaps, animations, the bar background strip, all in one window (no other app opens) |
 | `SUPER+A` | **Minimize** the window; the bar shows how many are minimized (click it to open the picker below) |
 | `SUPER+-` | Bring back the last minimized window onto the desk you're on (again for the one before) |
 | `SUPER+SHIFT+-` | **Minimized windows** picker: a thumbnail card for each, newest first — type to filter, arrows + Enter or its number to bring one back, Delete / middle-click / its × to close it |
@@ -89,17 +89,16 @@ command that fixes each problem. It changes nothing by itself.
   recolors in place (it restarts only if it was not already running); popups, borders,
   lock screen, wallpaper and kitty's colors all switch too; see
   `~/.config/hypr/themes/README.md` to make your own.
-- **Stickers**: each theme has a small sticker. The pop-up shows a Nerd Font glyph with
-  a motion for about two seconds under the bar when you switch theme. `SUPER+I` →
-  Stickers turns each one off, and changes the glyph and motion of any theme, your own
-  included; Preview shows the pop-up. You can add a GIF of your own for a theme (8 MB
-  or less, kept as `~/.config/hypr/characters/<theme id>.sticker.gif`, never in git).
-  The GIF then plays on the bar, left of the desks (click it to open the page), and on
-  the lock screen above the clock. A theme with no GIF has no pill on the bar. Neither
+- **Theme GIF**: each theme can have a GIF of your own (8 MB or less, kept as
+  `~/.config/hypr/themes/<theme id>.gif`, never in git). `SUPER+I` → Theme: *GIF…* on a
+  card picks it and *Remove* deletes it. The GIF plays on the bar, left of the desks
+  (click it to open the Theme page), and on the lock screen above the clock; a theme with no GIF
+  has no pill on the bar and no picture on the lock screen. Neither
   Waybar nor hyprlock plays a GIF, so both show its frames one after the other
   (a flip-book). *Bar GIF plays* chooses when the bar moves: always, only on AC power
   (the default), or for 5 s after a theme switch; otherwise it rests on the first
-  frame. The lock screen plays while it is locked. No picture ships with the project.
+  frame. The lock screen plays while it is locked. *GIF on theme switch* pops the GIF up
+  under the bar for about two seconds when you switch theme. No picture ships with the project.
 - **Fonts**: `SUPER+I` → Fonts. The English (mono) and the Persian font of the bar,
   popups, notifications, lock screen and kitty, chosen from the installed families
   and applied everywhere at once.
@@ -126,7 +125,6 @@ command that fixes each problem. It changes nothing by itself.
   desk block.
 - **Vertical screens** get a compact bar with only the workspaces, automatically
   (`waybar/scripts/bar_config.py` reads which screens are rotated).
-- **Lock screen picture**: save any square image as `~/.face`.
 - **Bar logo**: detected from `/etc/os-release`; force one with
   `echo arch > ~/.config/waybar/distro`.
 - **Brightness of external screens** uses DDC/CI: your user may need to be in the
@@ -167,10 +165,8 @@ anyone the right to redistribute them. So each person adds their own:
    `~/.config/hypr/wallpapers/wallpaper.png` (or `.jpg`, `.jpeg`, `.webp`). It is the
    same picture for every theme; with none, the desktop is filled with the current
    theme's background color.
-3. For the lock screen, pick a picture per theme from `SUPER+I` → Lock screen →
-   Choose… (kept as `~/.config/hypr/characters/<theme id>.png`, never in git). It shows
-   above the clock when that theme is in use. A GIF from Stickers wins over it; a theme
-   with neither shows `~/.face`, if you have one. The lock screen also shows the battery and what is playing.
+3. For a GIF on the bar and the lock screen, pick one per theme from `SUPER+I` → Theme →
+   *GIF…* on a card. The lock screen also shows the battery and what is playing.
 
 To change a character's colors, edit `~/.config/hypr/themes/<theme id>.json` (the color
 names are explained in `~/.config/hypr/themes/README.md`), then apply it again. To add

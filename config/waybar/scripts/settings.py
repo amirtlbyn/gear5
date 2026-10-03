@@ -2,16 +2,16 @@
 """
 Settings (SUPER+I, or the button in the control center), in the theme's colors.
 
-  settings.py [PAGE]      open on that page: theme, wallpaper, stickers, fonts, displays, wifi,
+  settings.py [PAGE]      open on that page: theme, wallpaper, fonts, displays, wifi,
                           bluetooth, sound, power, battery, notifications, keyboard, look
   settings.py theme-new           open the theme editor for a new theme
   settings.py theme-edit-ID       open the theme editor for a custom theme
 
 - Theme: pick a Straw Hat (or Summer night); everything switches at once. A "New
   theme" card and, on a made theme, Edit, Rename and Delete open the editor below.
+  A GIF section holds the bar GIF choices, and each card has its own GIF
+  (theme_gif.py).
 - Wallpaper: one image for every theme, copied into ~/.config/hypr/wallpapers/.
-- Stickers: two switches, a choice of when the bar GIF plays, and for each theme an
-  optional GIF (theme_gif.py).
 - Displays, Wi-Fi, Bluetooth, Sound, Power & sleep: the bar popups' own panels
   (see panel.py), so every setting is here and nothing opens another app.
   Power & sleep stacks them: battery and power mode, brightness, then the
@@ -24,6 +24,7 @@ Settings (SUPER+I, or the button in the control center), in the theme's colors.
 
 A normal window, not a popup: the file chooser has to be able to open over it.
 """
+import json
 import math
 import os
 import shutil
@@ -55,11 +56,9 @@ HYPRPICKER = shutil.which("hyprpicker")  # the eyedropper button hides without i
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 THEME_PY = os.path.join(SCRIPTS, "theme.py")
 THEME_GIF_PY = os.path.join(SCRIPTS, "theme_gif.py")
-STICKER_PY = os.path.join(SCRIPTS, "sticker.py")
 PAGES = [
     ("theme", "\U000f03d8", "Theme"),
     ("wallpaper", "\U000f02e9", "Wallpaper"),
-    ("stickers", "\U000f0785", "Stickers"),
     ("fonts", "\U000f0289", "Fonts"),
     ("displays", "\U000f0379", "Displays"),
     ("wifi", "\U000f05a9", "Wi-Fi"),
@@ -72,7 +71,7 @@ PAGES = [
     ("look", "\U000f0568", "Look & behavior"),
 ]
 SECTIONS = {"theme": "APPEARANCE", "displays": "SYSTEM", "keyboard": "INPUT & DESKTOP"}  # heading before
-OLD_PAGES = {"input": "keyboard", "lockscreen": "theme"}  # page names of earlier versions
+OLD_PAGES = {"input": "keyboard", "lockscreen": "theme", "stickers": "theme"}  # page names of earlier versions
 PANELS = {  # page -> [(popup, panel class), …]: the bar popups' own panels, see panel.py
     "displays": [("displays", "DisplaysPanel")],
     "wifi": [("wifi-menu", "WifiPanel")],
@@ -337,6 +336,9 @@ class Settings(Gtk.Application):
         self.win = None
         self.provider = None
         self.page = "theme"
+        self.gif_pictures = {}  # theme id -> the Gtk.Picture of its card (theme_page)
+        self.gif_timer = None  # the one GLib timer of the playing card
+        self.gif_playing = None  # the theme id whose card plays
         self.busy = False  # a theme switch, wallpaper copy or theme save is running
         self.panels = {}  # page -> [(panel, its module, its CSS provider)], built when first shown
         self.prefetched = set()  # the panel pages prefetch_panel has tried
@@ -426,7 +428,6 @@ class Settings(Gtk.Application):
         self.pages = dict(
             theme=self.theme_page,
             wallpaper=self.wallpaper_page,
-            stickers=self.stickers_page,
             fonts=self.fonts_page,
             notifications=self.notifications_page,
             keyboard=self.keyboard_page,
@@ -483,6 +484,8 @@ class Settings(Gtk.Application):
         if key != self.page:
             self.panel_hidden(self.page)
         self.page = key
+        if key != "theme":
+            self.gif_flip_stop()
         if key in PANELS and key not in self.panels:
             try:
                 self.build_panel(key)
@@ -495,6 +498,7 @@ class Settings(Gtk.Application):
             self.page_shown(key)
 
     def on_close(self, win):
+        self.gif_flip_stop()
         self.panel_hidden(self.page)
         win.set_visible(False)
         return True
@@ -549,6 +553,8 @@ class Settings(Gtk.Application):
 
     def page_shown(self, key):
         """The page just came into view: show what is true now."""
+        if key == "theme":
+            self.gif_flip_start()
         if key in self.panels:
             self.panel_call(key, "on_show")
         elif key == "notifications":
@@ -600,7 +606,13 @@ class Settings(Gtk.Application):
             "Pick a character. The bar, popups, notifications, window borders, "
             "lock screen and wallpaper all switch together.",
         )
+        if getattr(self, "gif_error", None):
+            box.append(label(self.gif_error, "error", xalign=0, wrap=True))
+            self.gif_error = None
+        self.gif_section(box)
         current = palette.current()
+        self.gif_flip_stop(restore=False)  # this page replaces the one whose card was playing
+        self.gif_pictures = {}  # theme id -> the Gtk.Picture of its card
         self.theme_cards = {}  # theme id -> (its card button, the box its "in use" badge goes in)
         self.theme_badge = label("in use", "badge")
         flow = Gtk.FlowBox(
@@ -628,6 +640,14 @@ class Settings(Gtk.Application):
             b.add_css_class("card")
             inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             inner.append(swatch(colors))
+            path = theme_gif.gif(tid)
+            if path:  # the first picture: a GIF that plays here would cost 11 players
+                picture = Gtk.Picture.new_for_filename(path)
+                picture.set_size_request(-1, 90)
+                self.gif_pictures[tid] = picture
+                inner.append(picture)
+            else:
+                inner.append(label("No GIF", "char", xalign=0))
             top = Gtk.Box(spacing=6)
             top.append(label(name, "name", xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END))
             inner.append(top)
@@ -642,23 +662,67 @@ class Settings(Gtk.Application):
             )
             b.set_child(inner)
             b.connect("clicked", lambda _b, t=tid: self.pick_theme(t))
+            wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            wrap.append(b)
+            actions = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
             if custom:
-                wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-                wrap.append(b)
-                actions = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
                 edit_btn = Gtk.Button(label="Edit")
                 edit_btn.add_css_class("act")
                 edit_btn.connect("clicked", lambda _b, t=tid: self.open_editor(t))
                 actions.append(edit_btn)
                 actions.append(self.rename_button(tid, name))
                 actions.append(self.delete_button(tid, name))
-                wrap.append(actions)
-                flow.append(wrap)
-            else:
-                flow.append(b)
+            choose = Gtk.Button(label="GIF…")
+            choose.add_css_class("act")
+            choose.connect(
+                "clicked",
+                lambda _b, t=tid, n=name: self.choose_picture(
+                    f"GIF for {n}", lambda p, t=t: self.set_theme_gif(t, p), GIF_TYPES, "GIF"
+                ),
+            )
+            remove = Gtk.Button(label="Remove", sensitive=bool(path))
+            remove.add_css_class("act")
+            remove.connect("clicked", lambda _b, t=tid: self.set_theme_gif(t, None))
+            actions.append(choose)
+            actions.append(remove)
+            wrap.append(actions)
+            flow.append(wrap)
         box.append(flow)
         self.mark_theme(current)
         return box
+
+    def gif_section(self, box):
+        """GIFT-9: the GIF choices for every theme, above the cards."""
+        s = store.load()
+        box.append(self.switch_row("GIF on the bar", "The theme's GIF, left of the desks. A theme with no GIF shows nothing. Click it to come here.", s, "gif_bar"))
+        row, _text = self.row("Bar GIF plays", "When the GIF on the bar moves. It rests on its first picture otherwise.")
+        bar_gif = Gtk.DropDown.new_from_strings([n for _k, n in BAR_GIF_NAMES])
+        bar_gif.set_valign(Gtk.Align.CENTER)
+        bar_gif.set_selected([k for k, _n in BAR_GIF_NAMES].index(s["bar_gif"]))
+        bar_gif.connect("notify::selected", lambda d, _p: self.save(bar_gif=BAR_GIF_NAMES[d.get_selected()][0]))
+        row.append(bar_gif)
+        box.append(row)
+        box.append(self.switch_row("GIF on theme switch", "A theme's GIF pops up under the bar for about two seconds.", s, "gif_switch"))
+
+    def set_theme_gif(self, theme_id, source):
+        """GIFT-6: copy source in as the theme's GIF (None removes it), then rewrite
+        the lock screen file; a refusal is shown on the page."""
+        if self.busy:
+            return
+        self.busy = True
+        self.gif_flip_stop()  # the frames are made again while the GIF is copied
+
+        def done(result):
+            self.busy = False
+            if isinstance(result, Exception):
+                self.gif_error = f"Couldn't use that GIF: {result}"
+            self.rebuild("theme")
+
+        def work():
+            theme_gif.set_gif(theme_id, source)
+            subprocess.run([THEME_PY, "lock"], capture_output=True, timeout=20, check=False)
+
+        in_background(work, done)
 
     def mark_theme(self, tid):
         """Move the "in use" badge and the current style to tid's card, in place:
@@ -670,6 +734,42 @@ class Settings(Gtk.Application):
             (card.add_css_class if t == tid else card.remove_css_class)("current")
             if t == tid:
                 top.append(self.theme_badge)
+        self.gif_flip_start()  # the playing card moves with the badge
+
+    def gif_flip_start(self):
+        """GIFT-6: the card of the theme in use plays the frames the lock screen uses
+        (gif/current/lock, times in frames.json), on one GLib timer at a time, only
+        while the Theme page is shown in a visible window. The other cards keep the
+        first picture. No GIF, or no frames: nothing plays."""
+        self.gif_flip_stop()
+        picture = self.gif_pictures.get(palette.current())
+        if picture is None or self.page != "theme" or not self.win.get_visible():
+            return
+        root = os.path.join(theme_gif.gif_dir(), "current")
+        try:
+            with open(os.path.join(root, "frames.json")) as f:
+                ms = json.load(f)["ms"]
+        except (OSError, ValueError, KeyError):
+            return
+        if len(ms) < 2:
+            return
+        self.gif_playing = palette.current()
+
+        def step(i):
+            picture.set_filename(os.path.join(root, "lock", f"{i:03d}.png"))
+            self.gif_timer = GLib.timeout_add(ms[i], lambda: (step((i + 1) % len(ms)), False)[1])
+
+        step(0)
+
+    def gif_flip_stop(self, restore=True):
+        """Stop the timer, and put the playing card back to its first picture."""
+        if self.gif_timer:
+            GLib.source_remove(self.gif_timer)
+            self.gif_timer = None
+        playing, self.gif_playing = self.gif_playing, None
+        picture = self.gif_pictures.get(playing)
+        if restore and picture is not None and theme_gif.gif(playing):
+            picture.set_filename(theme_gif.gif(playing))
 
     def rename_button(self, theme_id, name):
         """A button whose popover renames a custom theme in place."""
@@ -769,6 +869,7 @@ class Settings(Gtk.Application):
         if self.busy or tid == palette.current():
             return  # one switch at a time: the last click must be the theme you get
         self.busy = True
+        self.gif_flip_stop()  # the frames are made again while the theme applies
 
         def done(_r):
             self.busy = False
@@ -1039,79 +1140,6 @@ class Settings(Gtk.Application):
             if isinstance(result, Exception):
                 self.wall_error = f"Couldn't use that picture: {result}"
             self.rebuild("wallpaper")
-
-        in_background(work, done)
-
-    # ----- stickers --------------------------------------------------------------------
-    def stickers_page(self):
-        """The GIF choices, and a row per theme with its GIF."""
-        box = self.page_box(
-            "Stickers",
-            "Each theme can have a GIF of up to 8 MB. It plays on the bar and on the lock "
-            "screen, and pops up when you switch theme. Use GIFs you may use (fan art: "
-            "check the artist's terms).",
-        )
-        if getattr(self, "sticker_error", None):
-            box.append(label(self.sticker_error, "error", xalign=0, wrap=True))
-            self.sticker_error = None
-        s = store.load()
-        box.append(self.switch_row("GIF on the bar", "The theme's GIF, left of the desks. A theme with no GIF shows nothing. Click it to come here.", s, "gif_bar"))
-        row, _text = self.row("Bar GIF plays", "When the GIF on the bar moves. It rests on its first picture otherwise.")
-        bar_gif = Gtk.DropDown.new_from_strings([n for _k, n in BAR_GIF_NAMES])
-        bar_gif.set_valign(Gtk.Align.CENTER)
-        bar_gif.set_selected([k for k, _n in BAR_GIF_NAMES].index(s["bar_gif"]))
-        bar_gif.connect("notify::selected", lambda d, _p: self.save(bar_gif=BAR_GIF_NAMES[d.get_selected()][0]))
-        row.append(bar_gif)
-        box.append(row)
-        box.append(self.switch_row("GIF on theme switch", "A theme's GIF pops up under the bar for about two seconds.", s, "gif_switch"))
-        for theme_id, name, _character in palette.available():
-            path = theme_gif.gif(theme_id)
-            row = Gtk.Box(spacing=10)
-            row.add_css_class("row")
-            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, hexpand=True)
-            text.append(label(name, "title", xalign=0))
-            text.append(
-                label(
-                    os.path.basename(path) if path else "No GIF",
-                    "desc",
-                    xalign=0,
-                    ellipsize=Pango.EllipsizeMode.MIDDLE,
-                )
-            )
-            row.append(text)
-            choose = Gtk.Button(label="GIF…", valign=Gtk.Align.CENTER)
-            choose.add_css_class("act")
-            choose.connect(
-                "clicked",
-                lambda _b, t=theme_id, n=name: self.choose_picture(
-                    f"GIF for {n}", lambda p, t=t: self.set_sticker_gif(t, p), GIF_TYPES, "GIF"
-                ),
-            )
-            remove = Gtk.Button(label="Remove", valign=Gtk.Align.CENTER, sensitive=bool(path))
-            remove.add_css_class("act")
-            remove.connect("clicked", lambda _b, t=theme_id: self.set_sticker_gif(t, None))
-            row.append(choose)
-            row.append(remove)
-            box.append(row)
-        return box
-
-    def set_sticker_gif(self, theme_id, source):
-        """CHAR-9: copy source in as the theme's GIF (None removes it); a refusal
-        is shown on the page."""
-        if self.busy:
-            return
-        self.busy = True
-
-        def done(result):
-            self.busy = False
-            if isinstance(result, Exception):
-                self.sticker_error = f"Couldn't use that GIF: {result}"
-            self.rebuild("stickers")
-
-        def work():
-            theme_gif.set_gif(theme_id, source)
-            # GIFT-4: the next lock shows the GIF, or no picture
-            subprocess.run([THEME_PY, "lock"], capture_output=True, timeout=20, check=False)
 
         in_background(work, done)
 

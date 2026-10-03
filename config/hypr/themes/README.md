@@ -41,6 +41,6 @@ with the current theme's `bg0` color.
 ## GIF
 
 A theme can have a GIF: `~/.config/hypr/themes/<theme id>.gif`, set from Settings →
-Stickers. It must be a GIF of 8 MB or less. It plays on the bar and on the lock
+Theme (GIF… on a card). It must be a GIF of 8 MB or less. It plays on the bar and on the lock
 screen, and pops up under the bar for about two seconds when the theme changes. A
 theme with no GIF shows no picture on the lock screen. The GIFs are never in git.
