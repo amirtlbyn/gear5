@@ -5,6 +5,7 @@ Display settings (SUPER+P), Everforest style.
   displays.py [THEME] [--hidden]
   displays.py --auto        put back the layout saved for the screens connected now
                             (Hyprland runs this whenever a screen comes or goes)
+  displays.py --auto --lid-opened   the same, with the laptop panel on (lid.sh open)
 
 - Quick modes: Laptop only · Extend · Duplicate · External only.
 - Drag the screens on the map to arrange them; they snap edge to edge.
@@ -127,8 +128,10 @@ def lua_rules(screens):
         if not on:
             lines.append(f'hl.monitor({{ output = {json.dumps(selector(s))}, disabled = true }})')
             continue
-        spec = (f'output = {json.dumps(selector(s))}, mode = "{s.mode}", position = "{int(s.x)}x{int(s.y)}", '
-                f'scale = {s.scale:g}, transform = {s.transform}')
+        # disabled = false: Hyprland merges the rules for one screen, so without it
+        # an earlier "disabled = true" keeps the screen off until the next login
+        spec = (f'output = {json.dumps(selector(s))}, disabled = false, mode = "{s.mode}", '
+                f'position = "{int(s.x)}x{int(s.y)}", scale = {s.scale:g}, transform = {s.transform}')
         if s.mirror:
             spec += f', mirror = "{s.mirror}"'
         lines.append(f"hl.monitor({{ {spec} }})")
@@ -179,13 +182,19 @@ def load_profiles():
 
 def save_profile(screens):
     profiles = load_profiles()
+    key = profile_key(screens)
     by_name = {s.name: s.ident for s in screens}
     entry = {}
     for s in screens:
         st = s.state()
+        if s.internal and lid_closed():
+            # the lid turned the panel off, not the user: keep what was saved before
+            saved = profiles.get(key)
+            saved = saved.get(s.ident) if isinstance(saved, dict) else None
+            st["enabled"] = saved.get("enabled", True) if isinstance(saved, dict) else True
         st["mirror"] = by_name.get(st["mirror"]) if st["mirror"] else None   # remember the screen, not the port
         entry[s.ident] = st
-    profiles[profile_key(screens)] = entry
+    profiles[key] = entry
     try:
         os.makedirs(os.path.dirname(PROFILES), exist_ok=True)
         with open(PROFILES + ".tmp", "w") as f:
@@ -211,7 +220,15 @@ def saved_layout(screens):
     return screens
 
 
-def auto():
+def turn_on(s, screens):
+    """Turn s on at its best mode, to the right of the other screens that are on."""
+    s.enabled, s.mode, s.mirror = True, s.modes[0], None
+    shown = [o for o in screens if o.enabled and o is not s and not o.mirror]
+    s.x = max((o.x + o.size()[0] for o in shown), default=0)
+    s.y = min((o.y for o in shown), default=0)
+
+
+def auto(lid_opened=False):
     screens = read_screens()
     if not screens:
         return
@@ -225,11 +242,16 @@ def auto():
             write_layout(screens)  # nothing to change: the next reload keeps the screens as they are
             return
         for s in off:
-            s.enabled, s.mode, s.mirror = True, s.modes[0], None
-            shown = [o for o in screens if o.enabled and o is not s and not o.mirror]
-            s.x = max((o.x + o.size()[0] for o in shown), default=0)
-            s.y = min((o.y for o in shown), default=0)
+            turn_on(s, screens)
         wanted = screens
+    elif lid_opened:
+        # opening the lid means "use the laptop": a saved "off" must not keep it
+        # black, and is saved as "on" so the next plug or unplug keeps it on
+        off = [s for s in wanted if s.internal and not s.enabled]
+        for s in off:
+            turn_on(s, wanted)
+        if off:
+            save_profile(wanted)
     if all(s.state() == now[s.name] or (s.internal and lid_closed()) for s in wanted):
         write_layout(wanted)  # already like that: only make sure the next reload keeps it
         return
@@ -237,7 +259,7 @@ def auto():
 
 
 if __name__ == "__main__" and "--auto" in sys.argv:
-    auto()
+    auto(lid_opened="--lid-opened" in sys.argv)
     sys.exit(0)
 
 

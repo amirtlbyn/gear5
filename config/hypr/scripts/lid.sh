@@ -12,7 +12,13 @@ case "$1" in
       hyprctl reload >/dev/null
     fi ;;
   open)
-    if [[ -f "$FLAG" ]]; then rm -f "$FLAG"; hyprctl reload >/dev/null; fi ;;
+    # the layout file was written with the lid closed (panel off): write it again
+    # before the reload reads it, or the panel stays off
+    if [[ -f "$FLAG" ]]; then
+      rm -f "$FLAG"
+      ~/.config/waybar/scripts/displays.py --auto --lid-opened
+      hyprctl reload >/dev/null
+    fi ;;
   check)
     if grep -qs closed /proc/acpi/button/lid/*/state; then
       # lid closed and no external screen: they are asleep (lock, screen off) or
