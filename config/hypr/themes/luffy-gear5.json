@@ -1,8 +1,6 @@
 {
   "name": "Luffy \u00b7 Gear 5",
   "character": "Monkey D. Luffy (Gear 5 / Sun God Nika)",
-  "glyph": "sun",
-  "motion": "bounce",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#1a1e1e",

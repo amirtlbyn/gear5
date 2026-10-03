@@ -1,8 +1,6 @@
 {
   "name": "Chopper",
   "character": "Tony Tony Chopper",
-  "glyph": "medical_bag",
-  "motion": "bounce",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#211a1e",

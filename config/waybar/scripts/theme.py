@@ -9,7 +9,7 @@ the README there).
   theme.py apply ID             switch to it (Hyprland reloads; the bar and popups restart)
   theme.py write [ID]           only write the generated files (install; no reload)
   theme.py bar                  only rewrite the bar colors (the Settings bar-strip switch)
-  theme.py lock                 only rewrite the lock screen file (a Settings lock-screen picture)
+  theme.py lock                 only rewrite the lock screen file (after a GIF change)
 """
 import json
 import os
@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fonts  # noqa: E402
-import moment  # noqa: E402
+import theme_gif  # noqa: E402
 import palette  # noqa: E402
 import settings_store as store  # noqa: E402
 
@@ -71,7 +71,7 @@ def hypr_lua(t, wall):
 
 def hyprlock_conf(t, wall, character=""):
     """hypr/hyprlock-colors.conf: $variables the lock screen sources. $character
-    is the picture above the clock: empty draws none (LOCK-1)."""
+    is the picture above the clock: empty draws none (GIFT-3)."""
     c = t["colors"]
     lines = [f"# {HEADER.format(**t)}"]
     lines += [f"${k} = {rgb(c[k])}" for k in ("fg", "bg0", "green", "yellow", "red", "edge_deep")]
@@ -81,15 +81,12 @@ def hyprlock_conf(t, wall, character=""):
     return "\n".join(lines) + "\n"
 
 
-def lock_picture(theme_id, config=CONFIG):
-    """GIF-4, LOCK-1: the GIF's flip-book link (gif_player.py --lock moves it) when
-    the current theme has frames, else the theme's own picture, else ~/.face, else
-    "" (no picture)."""
-    if os.path.isfile(os.path.join(moment.gif_dir(), "current", "frames.json")):
-        return os.path.join(moment.CACHE, "lock.png")
-    own = palette.character(theme_id, os.path.join(config, "hypr", "characters"))
-    face = os.path.expanduser("~/.face")
-    return own or (face if os.path.isfile(face) else "")
+def lock_picture():
+    """GIFT-3, GIFT-4: the GIF's flip-book link (gif_player.py --lock moves it) when
+    the current theme has frames, else "" (no picture)."""
+    if os.path.isfile(os.path.join(theme_gif.gif_dir(), "current", "frames.json")):
+        return os.path.join(theme_gif.CACHE, "lock.png")
+    return ""
 
 
 def write_lock(config=CONFIG):
@@ -98,7 +95,7 @@ def write_lock(config=CONFIG):
     themes = os.path.join(config, "hypr", "themes")
     t = palette.theme(palette.current(themes), themes)
     wall = palette.wallpaper(os.path.join(config, "hypr", "wallpapers"), themes)
-    write(os.path.join(config, "hypr", "hyprlock-colors.conf"), hyprlock_conf(t, wall, lock_picture(t["id"], config)))
+    write(os.path.join(config, "hypr", "hyprlock-colors.conf"), hyprlock_conf(t, wall, lock_picture()))
 
 
 # kitty's color names -> the theme's color roles (a full 16, like the Everforest
@@ -173,12 +170,13 @@ def write_in_place(path, text):
         f.write(text)
 
 
-def refresh_moment(t, config):
+def refresh_gif(t, config):
     """The bar's GIF frames are decoration: a failure (no GdkPixbuf, a broken GIF)
     must not stop the theme switch."""
     try:
-        moment.refresh(t, config)
-    except Exception as e:  # noqa: BLE001 - any failure here only costs the sticker
+        theme_gif.migrate(config)  # GIFT-10: before the frames, which read themes/<id>.gif
+        theme_gif.refresh(t, config)
+    except Exception as e:  # noqa: BLE001 - any failure here only costs the GIF
         print(f"theme.py: no bar GIF for {t.get('id')}: {e}", file=sys.stderr)
 
 
@@ -188,7 +186,7 @@ def write_bar(config=CONFIG):
     themes = os.path.join(config, "hypr", "themes")
     t = palette.theme(palette.current(themes), themes)
     write(os.path.join(config, "waybar", "colors", "current.css"), waybar_css(t))
-    refresh_moment(t, config)  # before the touch, so the bar finds the frames
+    refresh_gif(t, config)  # before the touch, so the bar finds the frames
     touch(os.path.join(config, "waybar", "bar", "style.css"))
 
 
@@ -198,10 +196,10 @@ def write_all(theme_id, config=CONFIG):
     t = palette.theme(theme_id, themes)
     wall = palette.wallpaper(os.path.join(config, "hypr", "wallpapers"), themes)
     write(os.path.join(config, "waybar", "colors", "current.css"), waybar_css(t))
-    refresh_moment(t, config)  # before the touch, so the bar finds the frames
+    refresh_gif(t, config)  # before the touch, so the bar finds the frames
     touch(os.path.join(config, "waybar", "bar", "style.css"))  # Waybar reloads its CSS, no restart
     write(os.path.join(themes, "current.lua"), hypr_lua(t, wall))
-    write(os.path.join(config, "hypr", "hyprlock-colors.conf"), hyprlock_conf(t, wall, lock_picture(t["id"], config)))
+    write(os.path.join(config, "hypr", "hyprlock-colors.conf"), hyprlock_conf(t, wall, lock_picture()))
     kitty = os.path.join(config, "kitty")
     if os.path.isdir(kitty):  # not installed: nothing to recolor
         write_in_place(os.path.join(kitty, "colors", "current.conf"), kitty_conf(t))
@@ -234,9 +232,10 @@ def reload():
 
 
 def start_sticker(theme_id, config=CONFIG):
-    """Show the pop-up sticker for the new theme, when its switch is on. It is
-    decoration: it starts detached, and a failure to start never fails the switch (INV-3)."""
-    if not store.load()["sticker_switch"]:
+    """Show the new theme's GIF as a pop-up, when its switch is on and the theme has
+    a GIF (GIFT-8). It is decoration: it starts detached, and a failure to start never
+    fails the switch (INV-3)."""
+    if not store.load()["gif_switch"] or not theme_gif.gif(theme_id, os.path.join(config, "hypr", "themes")):
         return
     try:
         subprocess.Popen([os.path.join(config, "waybar", "scripts", "sticker.py"), theme_id],

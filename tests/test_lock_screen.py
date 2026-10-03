@@ -1,9 +1,7 @@
-"""The lock screen: the theme's own picture, battery and media status (roadmap 4.2,
-spec LOCK). See config/hypr/hyprlock.conf, config/hypr/scripts/lockinfo.sh,
-theme.py (lock_picture, write_lock), palette.py (character, set_character) and
-Settings' Lock screen page."""
+"""The lock screen: the theme's GIF, battery and media status (roadmap 4.2, specs
+LOCK and GIFT). See config/hypr/hyprlock.conf, config/hypr/scripts/lockinfo.sh and
+theme.py (lock_picture, write_lock)."""
 
-import ast
 import os
 import re
 import shutil
@@ -11,57 +9,41 @@ import subprocess
 import time
 
 import palette
-import pytest
 import theme
-from conftest import ROOT, SCRIPTS, THEMES
+from conftest import ROOT, THEMES
 
 HYPRLOCK = os.path.join(ROOT, "config", "hypr", "hyprlock.conf")
 LOCKINFO = os.path.join(ROOT, "config", "hypr", "scripts", "lockinfo.sh")
 
 
-def test_the_picture_is_the_themes_own_else_face_else_none(tmp_path, monkeypatch):
-    """LOCK-1: given a picture for the theme, then the lock screen uses it; given
-    none, then ~/.face when it exists; else no picture (an empty path)."""
-    monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    (tmp_path / "home").mkdir()
-    chars = tmp_path / "hypr" / "characters"
-    chars.mkdir(parents=True)
-    assert theme.lock_picture("zoro", str(tmp_path)) == ""
-    face = tmp_path / "home" / ".face"
-    face.write_bytes(b"x")
-    assert theme.lock_picture("zoro", str(tmp_path)) == str(face)
-    (chars / "zoro.webp").write_bytes(b"x")
-    assert theme.lock_picture("zoro", str(tmp_path)) == str(chars / "zoro.webp")
-    assert theme.lock_picture("nami", str(tmp_path)) == str(face)
-    conf = theme.hyprlock_conf(
-        palette.theme("zoro", THEMES), None, str(chars / "zoro.webp")
-    )
-    assert f"$character = {chars / 'zoro.webp'}\n" in conf
-    assert "$character = \n" in theme.hyprlock_conf(palette.theme("zoro", THEMES), None)
-
-
-def test_the_lock_picture_is_the_gif_else_the_picture_else_face_else_none(tmp_path, monkeypatch):
-    """GIF-4: given a theme with a picture and a ~/.face, when the theme has GIF
-    frames, then the lock picture is the flip-book link; when the frames are gone,
-    then it is the theme's picture; then ~/.face; then none."""
+def test_a_theme_with_no_gif_has_no_lock_picture_not_even_face(tmp_path, monkeypatch):
+    """GIFT-3: given an old lock picture in characters/ and a ~/.face, when the theme
+    in use has no GIF frames, then the lock picture is empty and the lock file's
+    $character is empty."""
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     (tmp_path / "home").mkdir()
     (tmp_path / "home" / ".face").write_bytes(b"x")
     chars = tmp_path / "hypr" / "characters"
     chars.mkdir(parents=True)
     (chars / "zoro.webp").write_bytes(b"x")
+    monkeypatch.setattr(theme.theme_gif, "CACHE", str(tmp_path / "cache"))
+
+    assert theme.lock_picture() == ""
+    assert "$character = \n" in theme.hyprlock_conf(palette.theme("zoro", THEMES), None, theme.lock_picture())
+
+
+def test_a_theme_with_gif_frames_shows_the_flip_book_on_the_lock_screen(tmp_path, monkeypatch):
+    """GIFT-4: given a theme whose GIF has frames, when the lock picture is asked
+    for, then it is the flip-book link, and it is empty again when the frames are
+    gone."""
     current = tmp_path / "cache" / "gif" / "current"
     current.mkdir(parents=True)
-    monkeypatch.setattr(theme.moment, "CACHE", str(tmp_path / "cache"))
-    face, picture = str(tmp_path / "home" / ".face"), str(chars / "zoro.webp")
+    monkeypatch.setattr(theme.theme_gif, "CACHE", str(tmp_path / "cache"))
 
-    assert theme.lock_picture("zoro", str(tmp_path)) == picture
     (current / "frames.json").write_text('{"ms": [100, 100]}')
-    assert theme.lock_picture("zoro", str(tmp_path)) == str(tmp_path / "cache" / "lock.png")
+    assert theme.lock_picture() == str(tmp_path / "cache" / "lock.png")
     (current / "frames.json").unlink()
-    assert theme.lock_picture("nami", str(tmp_path)) == face
-    (tmp_path / "home" / ".face").unlink()
-    assert theme.lock_picture("nami", str(tmp_path)) == ""
+    assert theme.lock_picture() == ""
 
 
 def run_lockinfo(tmp_path, battery=None, player=None):
@@ -143,56 +125,17 @@ def test_hyprlock_uses_the_theme_picture_and_the_status_line():
     assert y_status < int(re.search(r"position = 0, (-?\d+)", field).group(1))
 
 
-def test_set_character_copies_replaces_removes_and_refuses(tmp_path):
-    """LOCK-5: given a picked picture, then it is copied as characters/<id>.<ext>,
-    a picture of another extension for that theme is removed, Remove deletes it,
-    and a file that is not a picture, or an id that is not a plain name, is refused."""
-    chars = tmp_path / "characters"
-    png, jpg = tmp_path / "a.png", tmp_path / "b.JPG"
-    png.write_bytes(b"png")
-    jpg.write_bytes(b"jpg")
-    palette.set_character("zoro", str(png), str(chars))
-    assert sorted(os.listdir(chars)) == ["zoro.png"]
-    palette.set_character("zoro", str(jpg), str(chars))
-    assert sorted(os.listdir(chars)) == ["zoro.jpg"]
-    assert palette.character("zoro", str(chars)) == str(chars / "zoro.jpg")
-    palette.set_character("nami", str(png), str(chars))
-    palette.set_character("zoro", None, str(chars))
-    assert sorted(os.listdir(chars)) == ["nami.png"]
-    with pytest.raises(ValueError):
-        palette.set_character("zoro", str(tmp_path / "notes.txt"), str(chars))
-    with pytest.raises(ValueError):
-        palette.set_character("../x", str(png), str(chars))
-    with pytest.raises(OSError):
-        palette.set_character("nami", str(tmp_path / "missing.png"), str(chars))
-    assert sorted(os.listdir(chars)) == ["nami.png"]  # a failed copy keeps the old one
-
-
-def test_settings_applies_it_at_once_and_lists_every_theme(tmp_path, monkeypatch):
-    """LOCK-6: given `theme.py lock`, then only hyprlock-colors.conf is written, with
-    the current theme's picture; and the Settings page has a row for every theme
-    and runs `theme.py lock` after a pick or a removal."""
+def test_lock_writes_only_the_lock_screen_file(tmp_path, monkeypatch):
+    """LOCK-6: given `theme.py lock`, then only hyprlock-colors.conf is written, for
+    the current theme."""
     shutil.copytree(THEMES, tmp_path / "hypr" / "themes")
     (tmp_path / "hypr" / "themes" / "current").write_text("nami\n")
-    (tmp_path / "hypr" / "characters").mkdir()
-    (tmp_path / "hypr" / "characters" / "nami.png").write_bytes(b"x")
     monkeypatch.setenv("HOME", str(tmp_path))
     theme.write_lock(str(tmp_path))
     conf = (tmp_path / "hypr" / "hyprlock-colors.conf").read_text()
-    assert f"$character = {tmp_path / 'hypr' / 'characters' / 'nami.png'}\n" in conf
     assert "nami.json" in conf.splitlines()[0]
     assert not (tmp_path / "hypr" / "themes" / "current.lua").exists()
     assert not (tmp_path / "waybar").exists()
-
-    with open(os.path.join(SCRIPTS, "settings.py"), encoding="utf-8") as f:
-        tree = ast.parse(f.read())
-    fns = {n.name: n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
-    page = ast.unparse(fns["lockscreen_page"])
-    assert "palette.available()" in page and "palette.character(theme_id)" in page
-    assert "'No picture'" in page
-    setter = ast.unparse(fns["set_character"])
-    assert "palette.set_character(theme_id, source)" in setter
-    assert "[THEME_PY, 'lock']" in setter
 
 
 LOCK_SH = os.path.join(ROOT, "config", "hypr", "scripts", "lock.sh")

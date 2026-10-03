@@ -18,7 +18,6 @@ import shutil
 DEFAULT = "summer-night"
 THEMES = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "hypr", "themes")
 WALLPAPERS = os.path.join(os.path.dirname(THEMES), "wallpapers")
-CHARACTERS = os.path.join(os.path.dirname(THEMES), "characters")  # lock-screen pictures
 WALLPAPER_EXTS = (".png", ".jpg", ".jpeg", ".webp")
 SINGLE_MARK = ".single"  # in WALLPAPERS: the one wallpaper was set or removed at least once
 
@@ -118,27 +117,6 @@ def set_wallpaper(source, wallpapers=WALLPAPERS):
     """Copy source in as the one wallpaper (None removes it); see _install."""
     _install(source, wallpapers, "wallpaper",
              after_copy=lambda: open(os.path.join(wallpapers, SINGLE_MARK), "w").close())
-
-
-def character(theme_id, characters=CHARACTERS):
-    """The person's lock-screen picture for this theme, or None (LOCK-1)."""
-    if read_id_ok(theme_id):
-        for ext in WALLPAPER_EXTS:
-            path = os.path.join(characters, theme_id + ext)
-            if os.path.isfile(path):
-                return path
-    return None
-
-
-def set_character(theme_id, source, characters=CHARACTERS):
-    """Copy source in as this theme's lock-screen picture (None removes it); see
-    _install. An id that is not a plain name, or a file that is not a picture,
-    is refused (LOCK-5)."""
-    if not read_id_ok(theme_id):
-        raise ValueError(f"“{theme_id}” is not a theme id")
-    if source and os.path.splitext(source)[1].lower() not in WALLPAPER_EXTS:
-        raise ValueError("Pick a PNG, JPEG or WebP picture")
-    _install(source, characters, theme_id)
 
 
 def read_id_ok(theme_id):

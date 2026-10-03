@@ -29,17 +29,17 @@ DEFAULTS = dict(
     battery_start=95,
     battery_speed="Fast",
     battery_dim=0,  # minutes idle on battery before the screen dims (idle.sh); 0 = off
-    sticker_bar=True,
-    sticker_switch=True,
+    gif_bar=True,
+    gif_switch=True,
     bar_gif="ac",  # when the bar's GIF plays (gif_player.py): "always", "ac" or "switch"
-    moments={},  # theme id -> {"glyph": ..., "motion": ...}, the person's choices (moment.py)
     night_mode="off",  # the night light (night_light.py): "off", "sunset" or "schedule"
     night_temp=4000,
     night_start="20:00",
     night_end="07:00",
 )
-SWITCHES = ("natural_scroll", "tap_to_click", "gaps", "animations", "bar_strip", "sticker_bar", "sticker_switch")
+SWITCHES = ("natural_scroll", "tap_to_click", "gaps", "animations", "bar_strip", "gif_bar", "gif_switch")
 FONTS = ("font_en", "font_fa")
+OLD_KEYS = dict(sticker_bar="gif_bar", sticker_switch="gif_switch")  # read on load, never written
 # the values hyprland.lua uses (and toggle-gaps.sh puts back)
 GAPS_ON = dict(gaps_in=10, gaps_out=20, rounding=10)
 NIGHT_MODES = ("off", "sunset", "schedule")
@@ -136,6 +136,9 @@ def load(config=CONFIG):
         saved = {}
     s = dict(DEFAULTS)
     if isinstance(saved, dict):
+        for old, new in OLD_KEYS.items():  # GIFT-2: the names before the GIF-only change
+            if old in saved and new not in saved:
+                saved[new] = saved[old]
         for k, v in saved.items():
             if k not in DEFAULTS or type(v) is not type(DEFAULTS[k]):
                 continue
@@ -146,7 +149,6 @@ def load(config=CONFIG):
                 except ValueError:
                     continue
             s[k] = v
-    s["moments"] = dict(s["moments"])  # not DEFAULTS' own dict
     import battery  # local: battery.py imports this module
 
     try:  # one bad battery value must not block saving the other pages' settings

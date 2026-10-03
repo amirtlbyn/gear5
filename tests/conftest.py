@@ -14,9 +14,9 @@ def bar_signals(tmp_path_factory, monkeypatch):
     """theme.write_all and Settings make the bar's GIF frames and nudge the bar player.
     Keep every test away from the real cache folder and the real service: the
     frames go to a temporary folder, and the nudges land in the returned list."""
-    import moment
+    import theme_gif
 
     sent = []
-    monkeypatch.setattr(moment, "CACHE", str(tmp_path_factory.mktemp("cache")))
-    monkeypatch.setattr(moment, "nudge_player", lambda: sent.append("USR1"))
+    monkeypatch.setattr(theme_gif, "CACHE", str(tmp_path_factory.mktemp("cache")))
+    monkeypatch.setattr(theme_gif, "nudge_player", lambda: sent.append("USR1"))
     return sent

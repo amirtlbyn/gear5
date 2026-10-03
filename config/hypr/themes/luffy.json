@@ -1,8 +1,6 @@
 {
   "name": "Luffy",
   "character": "Monkey D. Luffy",
-  "glyph": "straw_hat",
-  "motion": "stretch",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#171c28",

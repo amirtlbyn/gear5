@@ -70,3 +70,23 @@ def test_a_hand_edited_font_name_falls_back_to_the_default(tmp_path):
     )
     s = store.load(str(tmp_path))
     assert s["font_en"] == store.DEFAULTS["font_en"] and s["font_fa"] == "Vazir"
+
+
+def test_old_sticker_keys_are_read_as_gif_keys_and_moments_is_dropped(tmp_path, xkb):
+    """GIFT-2: given a settings file with sticker_bar, sticker_switch and moments,
+    when it is loaded, then the two values are gif_bar and gif_switch and there is
+    no moments; and after a save the file has the new names only."""
+    hypr = tmp_path / "hypr"
+    hypr.mkdir()
+    (hypr / "user-settings.json").write_text(
+        json.dumps(dict(sticker_bar=False, sticker_switch=False, moments={"zoro": {"glyph": "star"}}))
+    )
+
+    loaded = store.load(str(tmp_path))
+    assert loaded["gif_bar"] is False and loaded["gif_switch"] is False
+    assert "moments" not in loaded
+
+    store.save(loaded, str(tmp_path), xkb)
+    saved = json.loads((hypr / "user-settings.json").read_text())
+    assert saved["gif_bar"] is False and saved["gif_switch"] is False
+    assert not {"sticker_bar", "sticker_switch", "moments"} & saved.keys()

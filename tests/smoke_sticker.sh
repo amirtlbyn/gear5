@@ -17,10 +17,10 @@ fi
 # a 1-pixel GIF in a scratch config folder, so the run does not touch the real one
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/hypr/characters" "$work/hypr/themes"
+mkdir -p "$work/hypr/themes"
 cp "$here/../config/hypr/themes/"*.json "$work/hypr/themes/"
 printf 'GIF89a\001\000\001\000\200\000\000\000\000\000\377\377\377!\371\004\001\000\000\000\000,\000\000\000\000\001\000\001\000\000\002\002D\001\000;' \
-  >"$work/hypr/characters/$theme.sticker.gif"
+  >"$work/hypr/themes/$theme.gif"
 for variant in without with; do
   if [[ $variant == without ]]; then cfg="$work/none"; mkdir -p "$cfg/hypr"; cp -r "$work/hypr/themes" "$cfg/hypr/"; else cfg="$work"; fi
   start=$SECONDS

@@ -2,7 +2,7 @@
 """
 Settings (SUPER+I, or the button in the control center), in the theme's colors.
 
-  settings.py [PAGE]      open on that page: theme, wallpaper, lockscreen, stickers, fonts, displays, wifi,
+  settings.py [PAGE]      open on that page: theme, wallpaper, stickers, fonts, displays, wifi,
                           bluetooth, sound, power, battery, notifications, keyboard, look
   settings.py theme-new           open the theme editor for a new theme
   settings.py theme-edit-ID       open the theme editor for a custom theme
@@ -10,9 +10,8 @@ Settings (SUPER+I, or the button in the control center), in the theme's colors.
 - Theme: pick a Straw Hat (or Summer night); everything switches at once. A "New
   theme" card and, on a made theme, Edit, Rename and Delete open the editor below.
 - Wallpaper: one image for every theme, copied into ~/.config/hypr/wallpapers/.
-- Lock screen: a picture for each theme, copied into ~/.config/hypr/characters/.
-- Stickers: two switches, a choice of when the bar GIF plays, and for each theme a glyph, a motion and an
-  optional GIF (moment.py); Preview shows the pop-up.
+- Stickers: two switches, a choice of when the bar GIF plays, and for each theme an
+  optional GIF (theme_gif.py).
 - Displays, Wi-Fi, Bluetooth, Sound, Power & sleep: the bar popups' own panels
   (see panel.py), so every setting is here and nothing opens another app.
   Power & sleep stacks them: battery and power mode, brightness, then the
@@ -43,11 +42,11 @@ try:
 except ValueError:
     pass
 import fonts  # noqa: E402
-import moment  # noqa: E402
 import palette  # noqa: E402
 import panel  # noqa: E402
 import popup_backdrop  # noqa: E402
 import settings_store as store  # noqa: E402
+import theme_gif  # noqa: E402
 import theme_maker  # noqa: E402
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
@@ -55,12 +54,11 @@ HYPRPICKER = shutil.which("hyprpicker")  # the eyedropper button hides without i
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 THEME_PY = os.path.join(SCRIPTS, "theme.py")
-MOMENT_PY = os.path.join(SCRIPTS, "moment.py")
+THEME_GIF_PY = os.path.join(SCRIPTS, "theme_gif.py")
 STICKER_PY = os.path.join(SCRIPTS, "sticker.py")
 PAGES = [
     ("theme", "\U000f03d8", "Theme"),
     ("wallpaper", "\U000f02e9", "Wallpaper"),
-    ("lockscreen", "\U000f033e", "Lock screen"),
     ("stickers", "\U000f0785", "Stickers"),
     ("fonts", "\U000f0289", "Fonts"),
     ("displays", "\U000f0379", "Displays"),
@@ -74,7 +72,7 @@ PAGES = [
     ("look", "\U000f0568", "Look & behavior"),
 ]
 SECTIONS = {"theme": "APPEARANCE", "displays": "SYSTEM", "keyboard": "INPUT & DESKTOP"}  # heading before
-OLD_PAGES = {"input": "keyboard"}  # page names of earlier versions
+OLD_PAGES = {"input": "keyboard", "lockscreen": "theme"}  # page names of earlier versions
 PANELS = {  # page -> [(popup, panel class), …]: the bar popups' own panels, see panel.py
     "displays": [("displays", "DisplaysPanel")],
     "wifi": [("wifi-menu", "WifiPanel")],
@@ -428,7 +426,6 @@ class Settings(Gtk.Application):
         self.pages = dict(
             theme=self.theme_page,
             wallpaper=self.wallpaper_page,
-            lockscreen=self.lockscreen_page,
             stickers=self.stickers_page,
             fonts=self.fonts_page,
             notifications=self.notifications_page,
@@ -1045,94 +1042,20 @@ class Settings(Gtk.Application):
 
         in_background(work, done)
 
-    # ----- lock screen -----------------------------------------------------------------
-    def lockscreen_page(self):
-        """LOCK-6: a picture for each theme, shown above the clock on the lock screen."""
-        box = self.page_box(
-            "Lock screen",
-            "A picture for each theme, above the clock when the screen is locked. Use "
-            "pictures you may use (fan art: check the artist's terms). A theme's GIF "
-            "(Stickers) wins over its picture. A theme with neither shows ~/.face, if "
-            "you have one.",
-        )
-        if getattr(self, "lock_error", None):
-            box.append(label(self.lock_error, "error", xalign=0, wrap=True))
-            self.lock_error = None
-        for theme_id, name, _character in palette.available():
-            path = palette.character(theme_id)
-            row = Gtk.Box(spacing=14)
-            row.add_css_class("row")
-            if path:
-                pic = Gtk.Picture.new_for_filename(path)
-                pic.set_content_fit(Gtk.ContentFit.COVER)
-                pic.set_overflow(Gtk.Overflow.HIDDEN)
-                pic.add_css_class("thumb")
-            else:
-                pic = swatch(palette.load(theme_id), names=("bg0",))
-                pic.set_hexpand(False)
-            pic.set_size_request(72, 72)
-            row.append(pic)
-            text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, hexpand=True)
-            text.append(label(name, "title", xalign=0))
-            text.append(
-                label(
-                    os.path.basename(path) if path else "No picture",
-                    "desc",
-                    xalign=0,
-                    ellipsize=Pango.EllipsizeMode.MIDDLE,
-                )
-            )
-            row.append(text)
-            choose = Gtk.Button(label="Choose…", valign=Gtk.Align.CENTER)
-            choose.add_css_class("act")
-            choose.connect(
-                "clicked",
-                lambda _b, t=theme_id, n=name: self.choose_picture(
-                    f"Lock screen picture: {n}", lambda p, t=t: self.set_character(t, p)
-                ),
-            )
-            remove = Gtk.Button(label="Remove", valign=Gtk.Align.CENTER, sensitive=bool(path))
-            remove.add_css_class("act")
-            remove.connect("clicked", lambda _b, t=theme_id: self.set_character(t, None))
-            row.append(choose)
-            row.append(remove)
-            box.append(row)
-        return box
-
-    def set_character(self, theme_id, source):
-        """LOCK-5/6: copy source in as the theme's picture (None removes it), then
-        rewrite only the lock screen file, so the next lock shows it."""
-        if self.busy:
-            return
-        self.busy = True
-
-        def work():
-            palette.set_character(theme_id, source)
-            subprocess.run([THEME_PY, "lock"], capture_output=True, timeout=20, check=False)
-
-        def done(result):
-            self.busy = False
-            if isinstance(result, Exception):
-                self.lock_error = f"Couldn't use that picture: {result}"
-            self.rebuild("lockscreen")
-
-        in_background(work, done)
-
     # ----- stickers --------------------------------------------------------------------
     def stickers_page(self):
-        """CHAR-8..10: the two sticker switches, and a row per theme with its glyph,
-        motion, GIF and a Preview."""
+        """The GIF choices, and a row per theme with its GIF."""
         box = self.page_box(
             "Stickers",
-            "A small sticker for each theme. It pops up when you switch theme: pick a glyph "
-            "and a motion. Add a GIF of your own (up to 8 MB) and it plays on the bar too. "
-            "Use GIFs you may use (fan art: check the artist's terms).",
+            "Each theme can have a GIF of up to 8 MB. It plays on the bar and on the lock "
+            "screen, and pops up when you switch theme. Use GIFs you may use (fan art: "
+            "check the artist's terms).",
         )
         if getattr(self, "sticker_error", None):
             box.append(label(self.sticker_error, "error", xalign=0, wrap=True))
             self.sticker_error = None
         s = store.load()
-        box.append(self.switch_row("GIF on the bar", "The theme's GIF, left of the desks. A theme with no GIF shows nothing. Click it to come here.", s, "sticker_bar"))
+        box.append(self.switch_row("GIF on the bar", "The theme's GIF, left of the desks. A theme with no GIF shows nothing. Click it to come here.", s, "gif_bar"))
         row, _text = self.row("Bar GIF plays", "When the GIF on the bar moves. It rests on its first picture otherwise.")
         bar_gif = Gtk.DropDown.new_from_strings([n for _k, n in BAR_GIF_NAMES])
         bar_gif.set_valign(Gtk.Align.CENTER)
@@ -1140,11 +1063,9 @@ class Settings(Gtk.Application):
         bar_gif.connect("notify::selected", lambda d, _p: self.save(bar_gif=BAR_GIF_NAMES[d.get_selected()][0]))
         row.append(bar_gif)
         box.append(row)
-        box.append(self.switch_row("Sticker on theme switch", "A sticker pops up under the bar for about two seconds.", s, "sticker_switch"))
-        glyphs, motions = list(moment.GLYPHS), list(moment.MOTIONS)
+        box.append(self.switch_row("GIF on theme switch", "A theme's GIF pops up under the bar for about two seconds.", s, "gif_switch"))
         for theme_id, name, _character in palette.available():
-            mine = moment.moment(theme_id)
-            path = moment.gif(theme_id)
+            path = theme_gif.gif(theme_id)
             row = Gtk.Box(spacing=10)
             row.add_css_class("row")
             text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, hexpand=True)
@@ -1158,14 +1079,6 @@ class Settings(Gtk.Application):
                 )
             )
             row.append(text)
-            glyph = Gtk.DropDown.new_from_strings([f"{chr(moment.GLYPHS[g])}  {g.replace('_', ' ')}" for g in glyphs])
-            glyph.set_selected(glyphs.index(mine["glyph"]))
-            glyph.set_valign(Gtk.Align.CENTER)
-            glyph.connect("notify::selected", lambda d, _p, t=theme_id: self.set_moment(t, glyph=glyphs[d.get_selected()]))
-            motion = Gtk.DropDown.new_from_strings(motions)
-            motion.set_selected(motions.index(mine["motion"]))
-            motion.set_valign(Gtk.Align.CENTER)
-            motion.connect("notify::selected", lambda d, _p, t=theme_id: self.set_moment(t, motion=motions[d.get_selected()]))
             choose = Gtk.Button(label="GIF…", valign=Gtk.Align.CENTER)
             choose.add_css_class("act")
             choose.connect(
@@ -1177,23 +1090,10 @@ class Settings(Gtk.Application):
             remove = Gtk.Button(label="Remove", valign=Gtk.Align.CENTER, sensitive=bool(path))
             remove.add_css_class("act")
             remove.connect("clicked", lambda _b, t=theme_id: self.set_sticker_gif(t, None))
-            preview = Gtk.Button(label="Preview", valign=Gtk.Align.CENTER)
-            preview.add_css_class("act")
-            preview.connect("clicked", lambda _b, t=theme_id: spawn([STICKER_PY, t]))
-            for w in (glyph, motion, choose, remove, preview):
-                row.append(w)
+            row.append(choose)
+            row.append(remove)
             box.append(row)
         return box
-
-    def set_moment(self, theme_id, glyph=None, motion=None):
-        """Save a choice at once; the bar shows it now when it is the theme in use."""
-
-        def done(result):
-            if isinstance(result, Exception):
-                self.sticker_error = f"Couldn't save that: {result}"
-                self.rebuild("stickers")
-
-        in_background(lambda: moment.set_choice(theme_id, glyph, motion), done)
 
     def set_sticker_gif(self, theme_id, source):
         """CHAR-9: copy source in as the theme's GIF (None removes it); a refusal
@@ -1209,8 +1109,8 @@ class Settings(Gtk.Application):
             self.rebuild("stickers")
 
         def work():
-            moment.set_gif(theme_id, source)
-            # GIF-4: the next lock shows the GIF, or falls back to the lock picture
+            theme_gif.set_gif(theme_id, source)
+            # GIFT-4: the next lock shows the GIF, or no picture
             subprocess.run([THEME_PY, "lock"], capture_output=True, timeout=20, check=False)
 
         in_background(work, done)
@@ -1503,8 +1403,8 @@ class Settings(Gtk.Application):
             self.error.set_visible(True)
             return
         self.error.set_visible(False)
-        if "sticker_bar" in changes:  # the pill, redrawn and signalled: no Hyprland reload
-            spawn([MOMENT_PY, "refresh"])
+        if "gif_bar" in changes:  # the pill, redrawn and signalled: no Hyprland reload
+            spawn([THEME_GIF_PY, "refresh"])
         if "bar_gif" in changes:  # GIF-3: the player reads it at start
             spawn(["systemctl", "--user", "restart", "bar-gif.service"])
         if any(k.startswith("night_") for k in changes):  # NIGHT-4: the service reads them at start

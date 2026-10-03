@@ -1,8 +1,6 @@
 {
   "name": "Nami",
   "character": "Nami",
-  "glyph": "lightning",
-  "motion": "pop",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#141b29",

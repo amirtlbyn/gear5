@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-The pop-up sticker (roadmap 6.2, spec CHAR): when a theme is applied, its GIF (or its
-glyph sticker), its name and its character show under the bar, play the theme's motion
-and go away by themselves. It takes no keyboard and no pointer input, and it runs only
-for these 2.5 s: no process stays.  sticker.py [THEME]
+The pop-up (roadmap 6.2, spec GIFT): when a theme is applied, its GIF, its name and
+its character show under the bar and go away by themselves. A theme with no GIF shows
+nothing: the process exits at once. It takes no keyboard and no pointer input, and it
+runs only for these 2.5 s: no process stays.  sticker.py [THEME]
 """
 import os
 import sys
@@ -35,11 +35,11 @@ except (ValueError, ImportError):
     LS = None
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import moment  # noqa: E402
 import palette  # noqa: E402
 import popup_backdrop  # noqa: E402
+import theme_gif  # noqa: E402
 
-SHOW_MS = 2500  # the sticker exits after this, GIF or not (CHAR-7 allows 4 s)
+SHOW_MS = 2500  # the pop-up exits after this (CHAR-7 allows 4 s)
 BAR_HEIGHT = 60  # bar/config: the sticker hangs just under it
 ART = 200  # the picture's size in px
 STYLE = """
@@ -53,23 +53,15 @@ window.sticker {{ background: transparent; }}
 """
 
 
-def art_widget(color, glyph, gif_path=None):
-    """The picture: the GIF playing when there is one, else
-    the glyph sticker drawn large."""
+def art_widget(gif_path):
+    """The GIF playing, or None when the file cannot be read."""
+    try:
+        anim = GdkPixbuf.PixbufAnimation.new_from_file(gif_path)
+    except GLib.Error:
+        return None
     pic = Gtk.Picture(can_shrink=False)
     pic.set_size_request(ART, ART)
-    pic.add_css_class("sticker-art")
-    if gif_path:
-        try:
-            anim = GdkPixbuf.PixbufAnimation.new_from_file(gif_path)
-        except GLib.Error:
-            anim = None
-        if anim is not None:
-            play(pic, anim)
-            return pic
-    big = os.path.join(moment.CACHE, "sticker-popup.png")
-    moment.draw(glyph, color, big, ART)
-    pic.set_filename(big)
+    play(pic, anim)
     return pic
 
 
@@ -109,18 +101,20 @@ def click_through(win):
 
 def build(app, theme_id):
     t = palette.theme(theme_id)
-    m = moment.moment(t["id"])
+    gif_path = theme_gif.gif(t["id"])
+    art = art_widget(gif_path) if gif_path else None
+    if art is None:
+        return None
     c = t["colors"]
     win = Gtk.ApplicationWindow(application=app, title="Sticker", decorated=False, focusable=False)
     win.add_css_class("sticker")
     prov = Gtk.CssProvider()
-    prov.load_from_string(STYLE.format(bg0=c["bg0"], fg=c["fg"], edge=c.get("edge_deep", c["bg2"]),
-                                       grey=c["grey"]) + moment.motion_css(m["motion"]))
+    prov.load_from_string(STYLE.format(bg0=c["bg0"], fg=c["fg"], edge=c.get("edge_deep", c["bg2"]), grey=c["grey"]))
     Gtk.StyleContext.add_provider_for_display(win.get_display(), prov, Gtk.STYLE_PROVIDER_PRIORITY_USER)
 
     card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, halign=Gtk.Align.CENTER, valign=Gtk.Align.START)
     card.add_css_class("card")
-    card.append(art_widget(c["green"], m["glyph"], moment.gif(t["id"])))
+    card.append(art)
     name = Gtk.Label(label=t["name"])
     name.add_css_class("name")
     card.append(name)
@@ -156,7 +150,11 @@ class Sticker(Gtk.Application):
     def do_activate(self):
         GLib.timeout_add(SHOW_MS, self.quit)  # first: a slow GIF decode must not delay the exit
         popup_backdrop.smooth_text()
-        build(self, self.theme_id).present()
+        win = build(self, self.theme_id)
+        if win is None:  # no GIF: nothing pops up (GIFT-8)
+            self.quit()
+        else:
+            win.present()
 
 
 def main(argv):

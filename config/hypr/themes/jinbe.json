@@ -1,8 +1,6 @@
 {
   "name": "Jinbe",
   "character": "Jinbe",
-  "glyph": "waves",
-  "motion": "sway",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#0c1c25",

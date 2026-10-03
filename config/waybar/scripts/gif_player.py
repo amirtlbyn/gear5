@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Plays the theme's GIF on the bar as a flip-book (spec GIF). moment.py cuts the GIF
+Plays the theme's GIF on the bar as a flip-book (spec GIF). theme_gif.py cuts the GIF
 into frame pictures; this service moves the link the bar's pill reads, then signals
 Waybar to read it again. Waybar and hyprlock play no GIF themselves.
 
@@ -22,7 +22,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import moment  # noqa: E402
+import theme_gif  # noqa: E402
 import settings_store as store  # noqa: E402
 
 WAYBAR_SIGNAL = 11  # image#character's "signal" in modules.jsonc
@@ -90,7 +90,7 @@ class BarPlayer:
         self.mode = "ac"
         self.on_ac = True
         self.play_until = 0
-        self.cache = cache or moment.CACHE
+        self.cache = cache or theme_gif.CACHE
         self.link = os.path.join(self.cache, "bar.png")
         self.tell_bar = tell_bar or self.signal_waybar
         self.ms = []
@@ -128,9 +128,9 @@ class BarPlayer:
         self.mode = settings["bar_gif"]
         self.play_until = self.clock() + SWITCH_PLAY_S if switched else 0
         self.on_ac = on_mains(self.power_root)
-        if settings["sticker_bar"]:
+        if settings["gif_bar"]:
             try:
-                with open(os.path.join(moment.gif_dir(), "current", "frames.json")) as f:
+                with open(os.path.join(theme_gif.gif_dir(), "current", "frames.json")) as f:
                     self.ms = [int(ms) for ms in json.load(f)["ms"]]
             except (OSError, ValueError, KeyError, TypeError):
                 self.ms = []
@@ -206,14 +206,14 @@ class LockPlayer:
         self.pid = pid
         self.kill = kill
         self.proc = proc
-        self.cache = cache or moment.CACHE
+        self.cache = cache or theme_gif.CACHE
         self.link = os.path.join(self.cache, "lock.png")
         self.index = 0
         self.ms = []
 
     def load(self):
         try:
-            with open(os.path.join(moment.gif_dir(), "current", "frames.json")) as f:
+            with open(os.path.join(theme_gif.gif_dir(), "current", "frames.json")) as f:
                 self.ms = [int(ms) for ms in json.load(f)["ms"]]
         except (OSError, ValueError, KeyError, TypeError):
             self.ms = []

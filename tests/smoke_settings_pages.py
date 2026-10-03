@@ -17,7 +17,6 @@ sys.path.insert(
 )
 sys.argv = ["settings.py", "--hidden"]
 import brightness  # noqa: E402
-import moment  # noqa: E402
 import power_mode  # noqa: E402
 import settings  # noqa: E402
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
@@ -374,81 +373,46 @@ def row_widgets(row):
 def with_scratch_settings(tmp):
     """Point the Stickers page at a scratch config: user-settings.json in tmp, a custom theme
     "nika" in the list, the background work run in place. Returns the undo function."""
-    real = dict(load=settings.store.load, bg=settings.in_background, avail=settings.palette.available,
-                choice=moment.set_choice)
+    real = dict(load=settings.store.load, bg=settings.in_background, avail=settings.palette.available)
     os.makedirs(os.path.join(tmp, "hypr"))
     settings.store.load = lambda *_a: real["load"](tmp)
     settings.palette.available = lambda *_a: [*real["avail"](), ("nika", "Nika", "")]
     settings.in_background = lambda work, done: done(work())
-    moment.set_choice = lambda t, g=None, m=None: real["choice"](t, g, m, config=tmp)
 
     def undo():
         settings.store.load, settings.in_background = real["load"], real["bg"]
-        settings.palette.available, moment.set_choice = real["avail"], real["choice"]
+        settings.palette.available = real["avail"]
 
     return undo
 
 
 def check_stickers_page():
-    """CHAR-8: given a custom theme, when the Stickers page is built, then it has the two
-    switches (on by default) and a row for the custom theme; when a motion is picked on
-    that row, then it is saved in user-settings.json at once and a rebuilt page shows it."""
+    """GIFT-9 (session 1): given a custom theme, when the Stickers page is built, then it has
+    the two switches (on by default) and a row for the custom theme with GIF... and Remove,
+    and the Remove button is off while the theme has no GIF."""
     with tempfile.TemporaryDirectory() as tmp:
         undo = with_scratch_settings(tmp)
         try:
             rows = sticker_rows(app.stickers_page())
             switches = [
                 row_widgets(rows[t])[-1].get_active()
-                for t in ("GIF on the bar", "Sticker on theme switch")
+                for t in ("GIF on the bar", "GIF on theme switch")
             ]
-            glyph, motion = row_widgets(rows["Nika"])[:2]
-            motion.set_selected(list(moment.MOTIONS).index("spin"))
-            saved = settings.store.load()["moments"]
-            reloaded = row_widgets(sticker_rows(app.stickers_page())["Nika"])[1].get_selected()
+            choose, remove = row_widgets(rows["Nika"])
         finally:
             undo()
     problems = [
         what
         for what, bad in (
             ("a switch is not on by default", switches != [True, True]),
-            ("the choice was not saved", saved != {"nika": {"motion": "spin"}}),
-            ("the rebuilt page does not show the choice", reloaded != list(moment.MOTIONS).index("spin")),
+            ("the buttons are not GIF... and Remove", (choose.get_label(), remove.get_label()) != ("GIF…", "Remove")),
+            ("Remove is on with no GIF", remove.get_sensitive()),
         )
         if bad
     ]
     for what in problems:
         failed.append("stickers page")
         print("FAIL stickers page: " + what, file=sys.stderr)
-    return False
-
-
-def check_sticker_preview():
-    """CHAR-10: given the sticker switch is off, when Preview is pressed on a theme's row,
-    then the pop-up sticker starts for that theme (the start is stubbed) and the theme
-    in use does not change."""
-    with tempfile.TemporaryDirectory() as tmp:
-        undo = with_scratch_settings(tmp)
-        started, real_spawn = [], settings.spawn
-        settings.spawn = started.append
-        try:
-            settings.store.save(dict(settings.store.load(), sticker_switch=False), tmp)
-            before = settings.palette.current()
-            row_widgets(sticker_rows(app.stickers_page())["Nika"])[-1].emit("clicked")
-            after = settings.palette.current()
-        finally:
-            settings.spawn = real_spawn
-            undo()
-    problems = [
-        what
-        for what, bad in (
-            (f"Preview started {started}", started != [[settings.STICKER_PY, "nika"]]),
-            ("Preview switched the theme", before != after),
-        )
-        if bad
-    ]
-    for what in problems:
-        failed.append("sticker preview")
-        print("FAIL sticker preview: " + what, file=sys.stderr)
     return False
 
 
@@ -500,7 +464,6 @@ GLib.timeout_add(1400, check_battery_page)
 GLib.timeout_add(1450, check_power_pick)
 GLib.timeout_add(1000, check_displays_brightness)
 GLib.timeout_add(1550, check_stickers_page)
-GLib.timeout_add(1560, check_sticker_preview)
 GLib.timeout_add(1600, visit_fonts)
 GLib.timeout_add(1500, visit_editor)
 GLib.timeout_add(1500, lambda: open_page("input"))  # the old name of Keyboard & touchpad

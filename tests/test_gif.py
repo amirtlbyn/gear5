@@ -1,4 +1,4 @@
-"""The theme's GIF on the bar (spec GIF). See config/waybar/scripts/moment.py
+"""The theme's GIF on the bar (spec GIF). See config/waybar/scripts/theme_gif.py
 (make_frames) and gif_player.py (BarPlayer). GdkPixbuf cannot write a GIF, so the
 tests write the bytes of a small one."""
 
@@ -7,11 +7,10 @@ import signal
 import struct
 import subprocess
 
-import pytest
-
 import gif_player
-import moment
+import pytest
 import settings_store as store
+import theme_gif
 from conftest import ROOT
 from test_bar_strip import settings_method
 
@@ -29,9 +28,9 @@ def make_gif(*delays_cs):
 
 
 def install_gif(config, theme_id, data):
-    characters = config / "hypr" / "characters"
-    characters.mkdir(parents=True, exist_ok=True)
-    (characters / f"{theme_id}.sticker.gif").write_bytes(data)
+    themes = config / "hypr" / "themes"
+    themes.mkdir(parents=True, exist_ok=True)
+    (themes / f"{theme_id}.gif").write_bytes(data)
 
 
 def bar_player(told):
@@ -45,19 +44,19 @@ def test_the_pill_shows_the_gif_and_is_hidden_without_one_or_with_the_switch_off
     install_gif(tmp_path, "zoro", make_gif(10, 10))
     told = []
     player = bar_player(told)
-    link = os.path.join(moment.CACHE, "bar.png")
-    monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, sticker_bar=True))
+    link = os.path.join(theme_gif.CACHE, "bar.png")
+    monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, gif_bar=True))
 
-    moment.make_frames("zoro", str(tmp_path))
+    theme_gif.make_frames("zoro", str(tmp_path))
     player.load()
     assert os.path.isfile(link)
 
-    monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, sticker_bar=False))
+    monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, gif_bar=False))
     player.load()
     assert os.path.islink(link) and not os.path.exists(link)
 
-    monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, sticker_bar=True))
-    moment.make_frames("brook", str(tmp_path))
+    monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, gif_bar=True))
+    theme_gif.make_frames("brook", str(tmp_path))
     player.load()
     assert os.path.islink(link) and not os.path.exists(link)
 
@@ -66,13 +65,13 @@ def test_the_player_steps_frames_in_order_with_their_times_and_a_still_pill_step
     """GIF-2: given a two-frame GIF of 100 ms and 30 ms, when the bar plays it, then
     the frames come in order with the times 0.1 s and 0.05 s (the 50 ms floor) and
     loop; when the GIF has one frame, then no timer is due and no frame is stepped."""
-    monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, sticker_bar=True, bar_gif="always"))
+    monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, gif_bar=True, bar_gif="always"))
     install_gif(tmp_path, "zoro", make_gif(10, 3))
     install_gif(tmp_path, "brook", make_gif(10))
     told = []
     player = bar_player(told)
 
-    moment.make_frames("zoro", str(tmp_path))
+    theme_gif.make_frames("zoro", str(tmp_path))
     player.load()
     assert os.path.realpath(player.link).endswith("/bar/000.png")
     assert player.wait() == 0.1
@@ -81,7 +80,7 @@ def test_the_player_steps_frames_in_order_with_their_times_and_a_still_pill_step
     assert player.step() == 0.1
     assert os.path.realpath(player.link).endswith("/bar/000.png")
 
-    moment.make_frames("brook", str(tmp_path))
+    theme_gif.make_frames("brook", str(tmp_path))
     player.load()
     told.clear()
     assert player.wait() is None
@@ -95,10 +94,10 @@ def test_frames_are_made_whole_or_the_theme_has_none(tmp_path):
     made again, then one set is left and `current` points at it; when the GIF cannot
     be read, then `current` is gone."""
     install_gif(tmp_path, "zoro", make_gif(10, 3))
-    root = moment.gif_dir()
+    root = theme_gif.gif_dir()
 
-    assert moment.make_frames("zoro", str(tmp_path)) is True
-    assert moment.make_frames("zoro", str(tmp_path)) is True
+    assert theme_gif.make_frames("zoro", str(tmp_path)) is True
+    assert theme_gif.make_frames("zoro", str(tmp_path)) is True
 
     current = os.path.join(root, "current")
     assert sorted(os.listdir(os.path.join(current, "bar"))) == ["000.png", "001.png"]
@@ -111,7 +110,7 @@ def test_frames_are_made_whole_or_the_theme_has_none(tmp_path):
         assert f.read() == '{"ms": [100, 50]}'
 
     install_gif(tmp_path, "zoro", b"GIF89a not really a gif")
-    assert moment.make_frames("zoro", str(tmp_path)) is False
+    assert theme_gif.make_frames("zoro", str(tmp_path)) is False
     assert not os.path.lexists(current)
 
 
@@ -124,9 +123,9 @@ def test_a_long_gif_keeps_every_frame_in_order():
     with tempfile.NamedTemporaryFile(suffix=".gif") as f:
         f.write(make_gif(*[2] * 60))
         f.flush()
-        frames = moment._decode(f.name)
+        frames = theme_gif._decode(f.name)
     assert len(frames) == 60
-    assert all(ms == moment.MIN_FRAME_MS for _pixbuf, ms in frames)
+    assert all(ms == theme_gif.MIN_FRAME_MS for _pixbuf, ms in frames)
 
 
 def test_the_bar_player_signals_only_a_process_named_waybar(monkeypatch):
@@ -171,11 +170,11 @@ def test_bar_gif_plays_by_the_choice_and_the_choice_is_checked_and_saved(tmp_pat
     (supply / "online").write_text("1\n")
     now = [100.0]
     install_gif(tmp_path, "zoro", make_gif(10, 10))
-    moment.make_frames("zoro", str(tmp_path))
+    theme_gif.make_frames("zoro", str(tmp_path))
     player = gif_player.BarPlayer(tell_bar=lambda: None, power_root=str(tmp_path / "power"), clock=lambda: now[0])
 
     def load(mode, switched=False):
-        monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, sticker_bar=True, bar_gif=mode))
+        monkeypatch.setattr(store, "load", lambda: dict(store.DEFAULTS, gif_bar=True, bar_gif=mode))
         player.load(switched)
 
     load("always")
@@ -243,7 +242,7 @@ def test_the_lock_flip_book_sends_only_sigusr2_only_to_hyprlock_and_stops_with_i
     hyprlock, or the PID is gone, or the signal fails, then nothing more is sent
     and the player returns."""
     install_gif(tmp_path, "zoro", make_gif(10, 10, 10))
-    moment.make_frames("zoro", str(tmp_path))
+    theme_gif.make_frames("zoro", str(tmp_path))
     sent = []
     player, comm = lock_player(tmp_path, sent)
     actions = iter([lambda: None, lambda: None, lambda: comm.write_text("firefox\n")])
@@ -333,8 +332,8 @@ def test_the_lock_picture_exists_before_the_first_lock_even_for_a_one_frame_gif(
     frame 0, so hyprlock has a picture from its first draw."""
     install_gif(tmp_path, "zoro", make_gif(10))
 
-    assert moment.make_frames("zoro", str(tmp_path))
-    lock = os.path.join(moment.CACHE, "lock.png")
+    assert theme_gif.make_frames("zoro", str(tmp_path))
+    lock = os.path.join(theme_gif.CACHE, "lock.png")
     assert os.path.isfile(lock)  # follows the link
     assert os.path.realpath(lock).endswith(os.path.join("lock", "000.png"))
 
@@ -342,12 +341,12 @@ def test_the_lock_picture_exists_before_the_first_lock_even_for_a_one_frame_gif(
 def test_a_gif_picked_or_removed_in_settings_rewrites_the_lock_picture():
     """Review of session 3: given the Stickers page, when a GIF is picked or
     removed for a theme, then Settings copies it and then runs `theme.py lock`,
-    so the next lock shows the GIF or falls back to the lock picture."""
+    so the next lock shows the GIF or shows no picture."""
     calls = []
-    fake_moment = type("Moment", (), {"set_gif": staticmethod(lambda t, src: calls.append(("set_gif", t, src)))})
+    fake_theme_gif = type("ThemeGif", (), {"set_gif": staticmethod(lambda t, src: calls.append(("set_gif", t, src)))})
     fake_subprocess = type("Sub", (), {"run": staticmethod(lambda argv, **_kw: calls.append(("run", argv)))})
     ns = {
-        "moment": fake_moment,
+        "theme_gif": fake_theme_gif,
         "subprocess": fake_subprocess,
         "THEME_PY": "theme.py",
         "in_background": lambda work, done: done(work()),
@@ -370,7 +369,7 @@ def test_the_lock_player_waits_until_hyprlock_has_locked(tmp_path):
     then nothing is sent, because SIGUSR2 would end hyprlock before it locks; once
     the handler is set, then SIGUSR2 is sent."""
     install_gif(tmp_path, "zoro", make_gif(10, 10))
-    moment.make_frames("zoro", str(tmp_path))
+    theme_gif.make_frames("zoro", str(tmp_path))
     sent = []
     player, comm = lock_player(tmp_path, sent)
     status = comm.parent / "status"
