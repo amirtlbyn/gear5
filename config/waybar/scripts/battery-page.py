@@ -9,6 +9,8 @@ page is shown — so it holds a GTK panel class only, no Application/window.
 Every read and write goes through battery.py, the module the battery-limits
 service also uses, so the page and the service can never disagree.
 """
+import os
+import subprocess
 import threading
 import traceback
 
@@ -21,6 +23,8 @@ import settings_store as store  # noqa: E402
 from gi.repository import GLib, Gtk  # noqa: E402
 
 ALIASES = {}
+IDLE = os.path.expanduser("~/.config/hypr/scripts/idle.sh")
+DIM_NAMES = ["Off" if m == 0 else f"{m} min" for m in store.BATTERY_DIM_MINUTES]
 P = palette.load(palette.current(), **ALIASES)
 
 STYLE = """
@@ -168,6 +172,18 @@ class BatteryLimitsPanel:
         self.no_perm = label(NO_PERM, "no-perm", xalign=0, wrap=True, visible=False)
         root.append(self.no_perm)
 
+        # BDIM-1: not one of the charge-limit controls, so it stays on without charge_types
+        dim_row = Gtk.Box(spacing=12)
+        dim_row.add_css_class("speed-row")
+        dim_row.append(label("Dim when idle", "row-title", xalign=0, hexpand=True))
+        self.dim_drop = Gtk.DropDown.new_from_strings(DIM_NAMES)
+        self.dim_drop.set_selected(store.BATTERY_DIM_MINUTES.index(store.load()["battery_dim"]))
+        self.dim_drop.connect("notify::selected", self.on_dim)
+        dim_row.append(self.dim_drop)
+        root.append(dim_row)
+        root.append(label("On battery, the laptop screen dims to 30% after this long with no use.",
+                          "note", xalign=0, wrap=True))
+
         self.root = root
         self.update_presets()
 
@@ -275,6 +291,16 @@ class BatteryLimitsPanel:
         self.speed = list(battery.SPEEDS)[drop.get_selected()]
         self.update_presets()
         self.save()
+
+    def on_dim(self, drop, _pspec):
+        """BDIM-1: save the dim time and rewrite hypridle's config at once."""
+        try:
+            store.save(dict(store.load(), battery_dim=store.BATTERY_DIM_MINUTES[drop.get_selected()]))
+        except ValueError:
+            traceback.print_exc()
+            return
+        subprocess.Popen([IDLE, "apply"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
 
     def save(self):
         """BATPICK-2: save at once, then apply the rule right away, so the

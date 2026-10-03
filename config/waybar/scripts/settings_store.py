@@ -28,6 +28,7 @@ DEFAULTS = dict(
     battery_stop=100,
     battery_start=95,
     battery_speed="Fast",
+    battery_dim=0,  # minutes idle on battery before the screen dims (idle.sh); 0 = off
     sticker_bar=True,
     sticker_switch=True,
     bar_gif="ac",  # when the bar's GIF plays (gif_player.py): "always", "ac" or "switch"
@@ -44,6 +45,7 @@ GAPS_ON = dict(gaps_in=10, gaps_out=20, rounding=10)
 NIGHT_MODES = ("off", "sunset", "schedule")
 BAR_GIF_MODES = ("always", "ac", "switch")
 NIGHT_TEMPS = (2500, 5500)  # the warmth slider's range, in kelvin
+BATTERY_DIM_MINUTES = (0, 1, 2, 5, 10)  # the Battery page's "Dim when idle" choices
 
 
 def paths(config=CONFIG):
@@ -93,6 +95,12 @@ def check_bar_gif(value):
     return value
 
 
+def check_battery_dim(value):
+    if isinstance(value, bool) or value not in BATTERY_DIM_MINUTES:
+        raise ValueError(f"“{value}” is not a dim time ({', '.join(map(str, BATTERY_DIM_MINUTES))} minutes)")
+    return value
+
+
 def check_night_temp(value):
     if isinstance(value, bool) or not isinstance(value, int) or not NIGHT_TEMPS[0] <= value <= NIGHT_TEMPS[1]:
         raise ValueError(f"The night light warmth is {NIGHT_TEMPS[0]} to {NIGHT_TEMPS[1]} K, not {value}")
@@ -108,7 +116,7 @@ def check_time(value):
 
 # a hand-edited value that fails its check falls back to the default on load
 CHOICE_CHECKS = dict(bar_gif=check_bar_gif, night_mode=check_night_mode, night_temp=check_night_temp,
-                    night_start=check_time, night_end=check_time)
+                    night_start=check_time, night_end=check_time, battery_dim=check_battery_dim)
 
 
 def _read(path):
