@@ -150,6 +150,8 @@ hl.config({
         -- a locker that dies or hangs (it does when a screen comes while locked) can be
         -- replaced by a new one (lock.sh refresh); the session stays locked meanwhile
         allow_session_lock_restore = true,
+        -- a replaced locker shows black, not the "lockscreen app died" page, for 3 s
+        lockdead_screen_delay = 3000,
     },
     cursor = { inactive_timeout = 0 },
     binds  = { workspace_back_and_forth = true },

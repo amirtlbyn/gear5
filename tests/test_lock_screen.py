@@ -155,25 +155,28 @@ def lock_sandbox(tmp_path):
     """A PATH with fake hyprlock, pidof and hyprctl, and a HOME with a fake GIF
     player: lock.sh runs for real but never meets the real lock screen. The fake
     hyprlock logs "started", keeps its PID in a file, lives FAKE_LOCK_SECONDS, and
-    logs the signal that ends it: "unlocked" for SIGUSR1, "term" for SIGTERM."""
+    logs the signal that ends it: "unlocked" for SIGUSR1, "term" for SIGTERM. It
+    prints "fake hyprlock log" on its stdout. hyprctl lists FAKE_MONITORS, and ps
+    says every process has run FAKE_ETIMES seconds (10: past the 5 s grace)."""
     bindir, home = tmp_path / "bin", tmp_path / "home"
     (home / ".config" / "waybar" / "scripts").mkdir(parents=True)
     bindir.mkdir()
     pidfile, calls = tmp_path / "hyprlock.pid", tmp_path / "calls"
     fakes = {
-        bindir / "hyprlock": (f'echo started >> {calls}\necho $$ > {pidfile}\n'
+        bindir / "hyprlock": (f'echo started >> {calls}\necho $$ > {pidfile}\necho "fake hyprlock log"\n'
                                f"trap 'echo unlocked >> {calls}; exit 0' USR1\n"
                                f"trap 'echo term >> {calls}; exit 0' TERM\n"
                                'sleep "$FAKE_LOCK_SECONDS" & wait\n'),
         bindir / "pidof": f'p=$(cat {pidfile} 2>/dev/null) && kill -0 "$p" 2>/dev/null && echo "$p"\n',
-        bindir / "hyprctl": "exit 0\n",
+        bindir / "hyprctl": 'for m in $FAKE_MONITORS; do echo "Monitor $m (ID 0):"; done\n',
+        bindir / "ps": 'echo "${FAKE_ETIMES:-10}"\n',
         home / ".config" / "waybar" / "scripts" / "gif_player.py": "exit 0\n",
     }
     for path, body in fakes.items():
         path.write_text("#!/usr/bin/env bash\n" + body)
         path.chmod(0o755)
     env = dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR=str(tmp_path),
-               PATH=f"{bindir}:{os.environ['PATH']}", FAKE_LOCK_SECONDS="0.5")
+               PATH=f"{bindir}:{os.environ['PATH']}", FAKE_LOCK_SECONDS="0.5", FAKE_MONITORS="DP-1 HDMI-A-1")
     return env, pidfile, calls
 
 
@@ -207,3 +210,98 @@ def test_a_screen_added_refreshes_the_lock():
     lua = open(HYPRLAND_LUA).read()
     hooks = re.findall(r'hl\.on\("monitor\.added",\s*function\(\) (.*?) end\)', lua)
     assert any('lock.sh refresh"' in h for h in hooks)
+
+
+# hyprlock 0.9.6's own log lines, as seen live on 2026-10-03 (spec LOCKQ)
+# (each line starts with hyprlock's color codes, as in the real log)
+D = "\x1b[1;32mDEBUG \x1b[0m]: "
+STARTED = "".join(D + line + "\n" for line in (
+    "output DP-1 name DP-1",
+    "output 86 description Microstep MSI MP271A 0000000000000 (DP-1)",
+    "output HDMI-A-1 name HDMI-A-1",
+    "output 87 description Samsung Electric Company LS27D300G H1AK500000 (HDMI-A-1)",
+    "Configuring surface for logical [Vector2D: x: 1080, y: 1920]",
+    "Configuring surface for logical [Vector2D: x: 1920, y: 1080]",
+))
+LOCKED = STARTED + D + "onLockLocked called\n"
+HDMI_BACK = D + "output HDMI-A-1 name HDMI-A-1\n" + D + "output 88 description Samsung (HDMI-A-1)\n"
+HDMI_SURFACE = D + "output 88 creating a new lock surface\n"
+
+
+def refresh_with_log(tmp_path, log, later="", **extra):
+    """A running fake hyprlock with this log, then one lock.sh refresh; `later` is
+    added to the log 3 s into the refresh (it checks at 2 s). The calls."""
+    env, pidfile, calls = lock_sandbox(tmp_path)
+    env.update(extra)
+    subprocess.run(["bash", "-c", f"FAKE_LOCK_SECONDS=30 {tmp_path}/bin/hyprlock >/dev/null & disown"], env=env, check=True)
+    for _ in range(50):
+        if pidfile.exists() and pidfile.read_text().strip():
+            break
+        time.sleep(0.05)
+    (tmp_path / "hyprlock.log").write_text(log)
+    refresh = subprocess.Popen([LOCK_SH, "refresh"], env=env)
+    if later:
+        time.sleep(3)
+        with open(tmp_path / "hyprlock.log", "a") as f:
+            f.write(later)
+    assert refresh.wait(timeout=15) == 0
+    calls_now = calls.read_text().split()
+    subprocess.run(["kill", "-TERM", pidfile.read_text().strip()], capture_output=True)
+    return calls_now
+
+
+def test_the_lock_keeps_hyprlocks_log_of_this_lock(tmp_path):
+    """LOCKQ-1: when lock.sh locks, then hyprlock's output is in
+    $XDG_RUNTIME_DIR/hyprlock.log, written again at each lock."""
+    env = lock_sandbox(tmp_path)[0]
+    (tmp_path / "hyprlock.log").write_text("the last lock\n")
+    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
+    assert (tmp_path / "hyprlock.log").read_text() == "fake hyprlock log\n"
+
+
+def test_refresh_leaves_a_hyprlock_that_is_unlocking(tmp_path):
+    """LOCKQ-2: given a locked hyprlock that has begun to unlock (a screen just came
+    back with no surface yet), when the refresh runs, then it ends nothing and starts
+    nothing: after the password is accepted (before the fade-out), and after it logs
+    the unlock itself."""
+    accepted = LOCKED + HDMI_BACK + D + "auth: authenticated for amir\n"
+    assert refresh_with_log(tmp_path / "a", accepted) == ["started"]
+    assert refresh_with_log(tmp_path / "b", LOCKED + HDMI_BACK + D + "Unlocking session\n") == ["started"]
+
+
+def test_refresh_leaves_a_hyprlock_that_covers_every_screen(tmp_path):
+    """LOCKQ-3: given a locked hyprlock, when the refresh runs and every active screen
+    was known before it locked, or came back and got a new lock surface, then it
+    ends nothing and starts nothing."""
+    assert refresh_with_log(tmp_path, LOCKED) == ["started"]
+    assert refresh_with_log(tmp_path / "back", LOCKED + HDMI_BACK + HDMI_SURFACE) == ["started"]
+
+
+def test_refresh_replaces_a_stuck_hyprlock_or_one_missing_a_screen(tmp_path):
+    """LOCKQ-4: given a hyprlock that has not locked after 5 s, even one that logged
+    an unlock it could not finish; or a locked one whose only unlock line came before
+    the lock; or a locked one with no lock surface on a screen that came back, or on
+    a screen it never saw (DP-1 is not covered by DP-10); or screens that cannot be
+    listed: when the refresh runs, then it is ended by SIGTERM and one new lock
+    starts. A hyprlock younger than 5 s is checked again once it is 5 s old: left
+    alone when it has locked by then, replaced when it has not."""
+    replaced = ["started", "term", "started"]
+    unlock_signal = D + "Unlocking with a SIGUSR1\n"
+    assert refresh_with_log(tmp_path / "a", STARTED + unlock_signal) == replaced
+    early = STARTED + unlock_signal + D + "onLockLocked called\n" + HDMI_BACK
+    assert refresh_with_log(tmp_path / "b", early) == replaced
+    assert refresh_with_log(tmp_path / "c", LOCKED + HDMI_BACK) == replaced
+    assert refresh_with_log(tmp_path / "d", LOCKED, FAKE_MONITORS="DP-1 HDMI-A-1 eDP-1") == replaced
+    dp10 = LOCKED.replace("(DP-1)", "(DP-10)")
+    assert refresh_with_log(tmp_path / "e", dp10, FAKE_MONITORS="DP-1 DP-10 HDMI-A-1") == replaced
+    assert refresh_with_log(tmp_path / "f", LOCKED, FAKE_MONITORS="") == replaced
+    assert refresh_with_log(tmp_path / "g", STARTED, FAKE_ETIMES="3") == replaced
+    assert refresh_with_log(tmp_path / "h", STARTED, later=D + "onLockLocked called\n", FAKE_ETIMES="3") == ["started"]
+
+
+def test_a_replaced_locker_shows_black_before_the_lockdead_page():
+    """LOCKQ-5: the Hyprland config waits 3 s before it shows its lockdead page."""
+    lua = open(HYPRLAND_LUA).read()
+    misc = lua[lua.index("    misc = {"):]
+    misc = misc[: misc.index("    },")]
+    assert re.search(r"^\s*lockdead_screen_delay = 3000,", misc, re.M)
