@@ -22,16 +22,28 @@ DEFAULTS = dict(
     tap_to_click=True,
     gaps=True,
     animations=True,
+    bar_strip=True,
     font_en="JetBrainsMono Nerd Font",
     font_fa="Vazirmatn",
     battery_stop=100,
     battery_start=95,
     battery_speed="Fast",
+    sticker_bar=True,
+    sticker_switch=True,
+    bar_gif="ac",  # when the bar's GIF plays (gif_player.py): "always", "ac" or "switch"
+    moments={},  # theme id -> {"glyph": ..., "motion": ...}, the person's choices (moment.py)
+    night_mode="off",  # the night light (night_light.py): "off", "sunset" or "schedule"
+    night_temp=4000,
+    night_start="20:00",
+    night_end="07:00",
 )
-SWITCHES = ("natural_scroll", "tap_to_click", "gaps", "animations")
+SWITCHES = ("natural_scroll", "tap_to_click", "gaps", "animations", "bar_strip", "sticker_bar", "sticker_switch")
 FONTS = ("font_en", "font_fa")
 # the values hyprland.lua uses (and toggle-gaps.sh puts back)
 GAPS_ON = dict(gaps_in=10, gaps_out=20, rounding=10)
+NIGHT_MODES = ("off", "sunset", "schedule")
+BAR_GIF_MODES = ("always", "ac", "switch")
+NIGHT_TEMPS = (2500, 5500)  # the warmth slider's range, in kelvin
 
 
 def paths(config=CONFIG):
@@ -69,6 +81,36 @@ def check_font(value):
     return name
 
 
+def check_night_mode(value):
+    if value not in NIGHT_MODES:
+        raise ValueError(f"“{value}” is not a night light mode ({', '.join(NIGHT_MODES)})")
+    return value
+
+
+def check_bar_gif(value):
+    if value not in BAR_GIF_MODES:
+        raise ValueError(f"“{value}” is not a Bar GIF choice ({', '.join(BAR_GIF_MODES)})")
+    return value
+
+
+def check_night_temp(value):
+    if isinstance(value, bool) or not isinstance(value, int) or not NIGHT_TEMPS[0] <= value <= NIGHT_TEMPS[1]:
+        raise ValueError(f"The night light warmth is {NIGHT_TEMPS[0]} to {NIGHT_TEMPS[1]} K, not {value}")
+    return value
+
+
+def check_time(value):
+    """ "HH:MM" from 00:00 to 23:59, as wlsunset takes it."""
+    if not isinstance(value, str) or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+        raise ValueError(f"“{value}” is not a time like 20:00")
+    return value
+
+
+# a hand-edited value that fails its check falls back to the default on load
+CHOICE_CHECKS = dict(bar_gif=check_bar_gif, night_mode=check_night_mode, night_temp=check_night_temp,
+                    night_start=check_time, night_end=check_time)
+
+
 def _read(path):
     try:
         with open(path) as f:
@@ -89,12 +131,14 @@ def load(config=CONFIG):
         for k, v in saved.items():
             if k not in DEFAULTS or type(v) is not type(DEFAULTS[k]):
                 continue
-            if k in FONTS:  # a hand-edited name the Fonts page would never offer
+            check = check_font if k in FONTS else CHOICE_CHECKS.get(k)
+            if check:  # a hand-edited value the pages would never offer
                 try:
-                    v = check_font(v)
+                    v = check(v)
                 except ValueError:
                     continue
             s[k] = v
+    s["moments"] = dict(s["moments"])  # not DEFAULTS' own dict
     import battery  # local: battery.py imports this module
 
     try:  # one bad battery value must not block saving the other pages' settings
@@ -130,6 +174,8 @@ def save(s, config=CONFIG, symbols=XKB_SYMBOLS):
             raise ValueError(f"{k} must be on or off")
     for k in FONTS:
         s[k] = check_font(s[k])
+    for k, check in CHOICE_CHECKS.items():
+        s[k] = check(s[k])
     import battery  # local: battery.py imports this module, so avoid a cycle at load time
 
     s["battery_stop"], s["battery_start"], s["battery_speed"] = battery.valid(

@@ -11,8 +11,11 @@
   font-weight: bold;
 }
 
+/* the strip behind the pills: the theme's fg and bar_edge, or transparent when
+   Settings > Look & behavior turns it off (theme.py writes both colors). The
+   edge keeps its 5px either way, so the pills never move. */
 window#waybar {
-  background-color: @fg;
+  background-color: @bar_strip;
   color: @bg0;
   transition-property: background-color;
   transition-duration: 0.5s;
@@ -20,7 +23,7 @@ window#waybar {
   transition-duration: .5s;
 
   border-bottom-width: 5px;
-  border-bottom-color: @bar_edge;
+  border-bottom-color: @bar_strip_edge;
   border-bottom-style: solid;
 }
 
@@ -120,7 +123,18 @@ window#waybar {
 #pulseaudio-slider { margin-left: 12px; margin-right: 12px; }
 
 #network.disconnected, #network.disabled { color: alpha(@fg, 0.45); }
+/* the wifi glyph's ink sits right of its cell: more padding on the left than the
+   right visually centers it (same direction as the original 5px hack, scaled up
+   for a bigger pill). Symmetric padding looked even but left the glyph off-center. */
+#network { padding-left: 7px; padding-right: 16px; }
 
+/* the other glyph-only pills are as wide as the network pill (31px). Each glyph's
+   ink is wider than its 8px text cell and spills right, so the padding differs
+   per pill to put the ink in the middle (measured with grim). */
+#pulseaudio  { padding-left: 10px; padding-right: 13px; }
+#battery     { padding-left: 11px; padding-right: 12px; }
+#custom-idle { padding-left: 10px; padding-right: 13px; }     /* sleep and coffee */
+#custom-idle.lock { padding-left: 11px; padding-right: 12px; }
 #custom-idle.awake { color: @yellow; }
 
 
@@ -150,6 +164,27 @@ window#waybar {
   border-bottom: 5px solid @blue_edge;   /* covers the tray's edge below it */
 }
 
+/* ===== the theme's GIF: bar-gif.service plays it. With the switch off, or for a theme
+   without a GIF, the picture link points at nothing and Waybar hides the pill. ===== */
+#image.character {
+  background-color: @bg0;
+  padding: 0 5px;
+  margin-top: 7px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border-bottom: 5px solid @edge_deep;
+}
+/* no GIF: a picture that fails to load on an update leaves the box with the
+   class "empty" (only a failure at start hides the whole module), so collapse it */
+#image.character.empty {
+  background: none;
+  padding: 0;
+  margin: 0;
+  border: none;
+  min-width: 0;
+}
+
 #custom-clock.other { color: @green; }   /* showing another timezone */
 
 #custom-minimized.has { color: @green; }   /* windows are minimized (SUPER+- brings one back) */
+

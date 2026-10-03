@@ -179,3 +179,25 @@ def test_closing_the_picker_drops_its_cards_and_thumbnails():
     mod.Picker.leave(app)
     assert app.win.visible is False
     assert app.textures == {} and app.cards == [] and app.flow.children == []
+
+
+def test_every_selection_scrolls_the_selected_card_into_view(monkeypatch):
+    """PICKNAV-1: given a picker with 12 cards, when the selection moves (the
+    arrow keys, a filter and a close all go through select), then each time the
+    shared scroll helper is asked to show the newly selected card of the
+    picker's list, also when the index is clamped to the last card."""
+    shown = []
+    monkeypatch.setattr(mod.scrolling, "reveal", lambda scroll, content, card: shown.append((scroll, content, card)))
+
+    class Card:
+        def set_selected(self, on):
+            self.on = on
+
+    picker = type("P", (), {})()
+    picker.cards, picker.selected, picker.scroll, picker.flow = [Card() for _ in range(12)], 0, "scroll", "flow"
+
+    mod.Picker.select(picker, 9)
+    mod.Picker.select(picker, 50)
+
+    assert shown == [("scroll", "flow", picker.cards[9]), ("scroll", "flow", picker.cards[11])]
+    assert picker.cards[11].on and not picker.cards[9].on

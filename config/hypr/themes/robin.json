@@ -1,6 +1,8 @@
 {
   "name": "Robin",
   "character": "Nico Robin",
+  "glyph": "flower",
+  "motion": "sway",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#1b1722",

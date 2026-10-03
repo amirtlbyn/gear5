@@ -25,7 +25,7 @@ hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 
 -- the layout Settings > Displays last applied (displays.py writes it), after the lines
 -- above, so a reload (a theme switch) keeps the screens where they are. loadfile, not
--- require: writing that file must not reload Hyprland by itself; a broken file is skipped
+-- require: writing that file must not reload Hyprland by itself. A broken file is skipped
 local layout = loadfile((os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")) .. "/hypr/displays-current.lua")
 if layout then pcall(layout) end
 
@@ -147,6 +147,9 @@ hl.config({
         focus_on_activate = true,
         disable_hyprland_logo = true,
         disable_splash_rendering = true,
+        -- a locker that dies or hangs (it does when a screen comes while locked) can be
+        -- replaced by a new one (lock.sh refresh); the session stays locked meanwhile
+        allow_session_lock_restore = true,
     },
     cursor = { inactive_timeout = 0 },
     binds  = { workspace_back_and_forth = true },
@@ -210,6 +213,8 @@ bind(mainMod .. " + I",      exec("~/.config/waybar/scripts/settings.py"))
 -- session
 bind(mainMod .. " + M",         hl.dsp.exit())
 bind(mainMod .. " + SHIFT + R", exec("hyprctl reload && notify-send 'Hyprland reloaded'"))
+-- a way out when an open popup hangs and keeps the keyboard: kill it, start it again hidden
+bind(mainMod .. " + SHIFT + Escape", exec("~/.config/waybar/scripts/popup.sh --unstick"))
 -- switch the language on every keyboard together (Alt+Shift in either order, or SUPER+Space)
 local switchLayout = exec("~/.config/hypr/scripts/switch-layout.sh")
 bind(mainMod .. " + SPACE",     switchLayout)
@@ -226,7 +231,9 @@ bind(mainMod .. " + SHIFT + P",     hl.dsp.window.pseudo())
 bind(mainMod .. " + P",             exec("~/.config/waybar/scripts/popup.sh displays"))
 bind(mainMod .. " + J",             hl.dsp.layout("togglesplit"))
 bind(mainMod .. " + G",             hl.dsp.group.toggle())
-bind(mainMod .. " + Tab",           hl.dsp.group.next())
+bind(mainMod .. " + SHIFT + G",     hl.dsp.group.next())
+-- every desk and its windows, as thumbnails: pick one to go there
+bind(mainMod .. " + Tab",           exec("~/.config/waybar/scripts/popup.sh overview"))
 bind("ALT + Tab",                   hl.dsp.focus({ last = true }))
 bind(mainMod .. " + H",             exec("sh ~/.config/hypr/scripts/toggle-gaps.sh"))
 
@@ -310,10 +317,11 @@ bind(mainMod .. " + A",             function() minimizeActive() end)
 bind(mainMod .. " + minus",         function() restoreMinimized() end)
 bind(mainMod .. " + SHIFT + minus", exec("~/.config/waybar/scripts/popup.sh minimized-picker"))
 -- a thumbnail card of each minimized window: blurred over the dimmed backdrop
--- (BATPICK-7). Only this one namespace opts into blur; nothing else changes look.
+-- (BATPICK-7), and the overview's cards the same way. Only these namespaces opt
+-- into blur; nothing else changes look.
 hl.layer_rule({
     name = "minimized-picker-blur",
-    match = { namespace = "^minimized-picker$" },
+    match = { namespace = "^(minimized-picker|overview)$" },
     blur = true,
 })
 
@@ -463,10 +471,7 @@ end
 
 local syncing = false
 
-local function showDesk(n)
-    local focused = hl.get_active_monitor()
-    if not focused or syncing then return end
-    syncing = true
+local function syncDesk(focused, n)
     local cursor = hl.get_cursor_pos()
     local mons, slots = monitorSlots()
     local moved = false
@@ -488,7 +493,16 @@ local function showDesk(n)
     if (hl.get_active_workspace() or {}).id ~= id then
         hl.dispatch(hl.dsp.focus({ workspace = id }))
     end
+end
+
+local function showDesk(n)
+    local focused = hl.get_active_monitor()
+    if not focused or syncing then return end
+    syncing = true
+    -- a screen can vanish mid-way (waking up, lid): never leave syncing stuck on
+    local ok, err = pcall(syncDesk, focused, n)
     syncing = false
+    if not ok then error(err) end
 end
 
 local function currentWorkspace()
@@ -512,7 +526,7 @@ local settleTimer
 local displaysTimer
 local function displaysSoon()
     if displaysTimer then displaysTimer:set_enabled(false) end
-    displaysTimer = hl.timer(function() hl.exec_cmd("~/.config/waybar/scripts/displays.py --auto") end,
+    displaysTimer = hl.timer(function() hl.exec_cmd("~/.config/waybar/scripts/displays.py --auto; ~/.config/waybar/scripts/bar_config.py --refresh") end,
                              { timeout = 700, type = "oneshot" })
 end
 hl.on("monitor.added", displaysSoon)
@@ -537,6 +551,22 @@ hl.on("monitor.removed", settleSoon)
 -- the bar's desk buttons call these (`hyprctl eval 'desk(3)'`); waybar's own
 -- workspace module can't, it only speaks the old hyprctl dispatch syntax
 function desk(n) showDesk(n) end
+-- the overview (SUPER+Tab) calls `hyprctl eval 'goToWindow("0x...")'`: every screen goes
+-- to that window's desk and the window gets focus; a minimized one comes back as
+-- restoreMinimized brings it. A window that is gone meanwhile: nothing happens.
+function goToWindow(addr)
+    for _, w in ipairs(hl.get_windows()) do
+        if w.address == addr then
+            if isMinimized(w) then
+                restoreMinimized(addr)
+            elseif w.workspace and w.workspace.id >= 1 then
+                showDesk(deskOf(w.workspace.id))
+                hl.dispatch(hl.dsp.focus({ window = w }))
+            end
+            return
+        end
+    end
+end
 -- RTMIN+8: the desk buttons, RTMIN+10: the minimized count
 local function refreshBar() hl.exec_cmd("pkill -RTMIN+8 waybar; pkill -RTMIN+10 waybar") end
 for _, ev in ipairs({ "workspace.active", "window.open", "window.close", "window.move_to_workspace" }) do
@@ -677,7 +707,7 @@ bind("ALT + up",   zenTab("Page_Up",   "Up"))
 bind(mainMod .. " + N", exec("swaync-client -t -sw"))
 
 -- SUPER+L: lock screen
-bind(mainMod .. " + L", exec("pidof hyprlock || (hyprctl switchxkblayout all 0; hyprlock)"))
+bind(mainMod .. " + L", exec("~/.config/hypr/scripts/lock.sh"))
 
 ---------------- Power: sleep timer + laptop lid ----------------
 hl.on("hyprland.start", function()
@@ -687,6 +717,10 @@ end)
 -- lid already closed when a screen is plugged in or out: apply it
 hl.on("monitor.added",   function() hl.exec_cmd("sleep 1; ~/.config/hypr/scripts/lid.sh check") end)
 hl.on("monitor.removed", function() hl.exec_cmd("sleep 1; ~/.config/hypr/scripts/lid.sh check") end)
+-- hyprlock draws nothing on a screen that comes while locked (the lid opens, a
+-- screen is plugged in): Hyprland shows its lockdead picture there and no key gets
+-- through. A new hyprlock covers every screen.
+hl.on("monitor.added",   function() hl.exec_cmd("~/.config/hypr/scripts/lock.sh refresh") end)
 
 -- lid closed while an external screen is connected -> switch the laptop panel off
 do

@@ -1,6 +1,8 @@
 {
   "name": "Brook",
   "character": "Brook",
+  "glyph": "violin",
+  "motion": "wobble",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#131316",

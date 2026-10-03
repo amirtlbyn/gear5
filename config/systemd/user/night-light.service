@@ -1,0 +1,11 @@
+[Unit]
+Description=Night light (Settings' Displays page)
+PartOf=hyprland-session.target
+
+[Service]
+ExecStart=%h/.config/waybar/scripts/night_light.py --serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=hyprland-session.target

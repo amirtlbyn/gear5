@@ -4,6 +4,8 @@ __pycache__/
 *.bak
 # wallpapers belong to their artists: never commit them (see README, "Characters & wallpapers")
 config/hypr/wallpapers/
+# lock-screen character pictures are each person's own too (Settings > Lock screen)
+config/hypr/characters/
 
 # local Claude Code specs and logs
 .claude/

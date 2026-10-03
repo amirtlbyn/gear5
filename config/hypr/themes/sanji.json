@@ -1,6 +1,8 @@
 {
   "name": "Sanji",
   "character": "Vinsmoke Sanji",
+  "glyph": "chef_hat",
+  "motion": "spin",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#17171b",

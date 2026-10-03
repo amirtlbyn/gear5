@@ -3,6 +3,13 @@
     "orientation": "horizontal",
     "modules": ["custom/desk#d1", "custom/desk#d2", "custom/desk#d3", "custom/desk#d4", "custom/desk#d5", "custom/desk#d6", "custom/desk#d7", "custom/desk#d8", "custom/desk#d9", "custom/desk#d10"],
   },
+  // the theme's GIF: bar-gif.service (scripts/gif_player.py) moves the picture link and signals 11
+  // per frame; a link to nothing hides the pill. The "path" is added by scripts/bar_config.py.
+  "image#character": {
+    "signal": 11,
+    "size": 30,
+    "on-click": "~/.config/waybar/scripts/settings.py stickers",
+  },
   "custom/desk#d1": {
     "exec": "~/.config/waybar/scripts/desk.sh 1",
     "return-type": "json", "interval": "once", "signal": 8,
@@ -126,10 +133,11 @@
 
 "pulseaudio": {
       "scroll-step": 5,
-      "format": "{icon} {volume}%",
-      "format-bluetooth": "{icon}  {volume}%",
+      "format": "{icon}",
+      "format-bluetooth": "{icon} ",
       "format-bluetooth-muted": "  muted",
       "format-muted": " muted",
+      "tooltip-format": "{volume}%",
       "format-icons": {
           "headphone": "",
           "hands-free": "",
@@ -145,8 +153,8 @@
   },
 
 "network": {
-      "format-wifi": " {signalStrength}%",
-      "format-ethernet": " {signalStrength}%",
+      "format-wifi": "",
+      "format-ethernet": "",
       "format-disconnected": " --",
       "on-click": "~/.config/waybar/scripts/popup.sh wifi-menu",
       "format-disabled": " off",
@@ -155,6 +163,7 @@
 
 "battery": {
     "bat": "BAT0",
+    "tooltip-format": "{capacity}%",
     "adapter": "ADP0",
     "interval": 60,
     "states": {
@@ -162,13 +171,13 @@
         "critical": 15
     },
     "max-length": 10,
-    "format": "{icon} {capacity}%",
+    "format": "{icon}",
     "format-warning": "{icon} {capacity}%",
     "format-critical": "{icon} {capacity}%",
     "format-charging": " {capacity}%",
-    "format-plugged": " {capacity}%",
+    "format-plugged": "",
     "on-click": "~/.config/waybar/scripts/popup.sh control-center",
-    "format-full": " 100%",
+    "format-full": "",
     "format-icons": ["", "", "", "", "", "", "", "", "", ""]
 },
 
@@ -180,6 +189,7 @@
     "exec": "~/.config/waybar/scripts/clock.sh",
     "return-type": "json",
     "on-click": "~/.config/waybar/scripts/popup.sh worldclock",
+    "on-click-right": "~/.config/waybar/scripts/popup.sh worldclock",
     "on-scroll-up": "~/.config/waybar/scripts/clock.sh prev",
     "on-scroll-down": "~/.config/waybar/scripts/clock.sh next"
 },
@@ -208,7 +218,7 @@
 },
 
 "custom/dates": {
-  "on-click": "~/.config/waybar/scripts/popup.sh calendar-popup",
+  "on-click": "~/.config/waybar/scripts/popup.sh worldclock",
   "exec": "~/.config/waybar/scripts/dates.py",
   "return-type": "json",
   "interval": 300,

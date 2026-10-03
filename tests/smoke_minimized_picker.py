@@ -4,7 +4,7 @@ thumbnails skipped — from a fake client list. Never touches the real hyprctl
 clients, grim, or a real window; the window is never presented. Run by
 smoke_popups.sh on a private D-Bus session over the live display:
 
-    GTK_A11Y=none dbus-run-session -- python3 tests/smoke_minimized_picker.py
+    GTK_A11Y=none dbus-run-session --config-file=tests/private-bus.conf -- python3 tests/smoke_minimized_picker.py
 
 Exit 0 when the grid held the right cards, in the right order, numbered.
 """

@@ -10,20 +10,6 @@ city() {  # Asia/Tehran → Tehran, America/New_York → New York
   z=${z##*/}; echo "${z//_/ }"
 }
 
-# short name for the bar: Tehran → TEH, New York → NY, or your own from "labels"
-# in clock-zones.json, e.g. "labels": {"Asia/Tehran": "IR"}
-short() {
-  local custom c out=""
-  custom=$(jq -r --arg z "$1" '.labels[$z] // empty' "$STATE" 2>/dev/null)
-  if [[ -n $custom ]]; then echo "$custom"; return; fi
-  c=$(city "$1")
-  if [[ $c == *" "* ]]; then
-    for w in $c; do out+=${w:0:1}; done
-  else
-    out=${c:0:3}
-  fi
-  echo "${out^^}"
-}
 
 if [[ "$1" == next || "$1" == prev ]]; then
   step=1; [[ "$1" == prev ]] && step=-1
@@ -38,7 +24,9 @@ emit() {
   local active zone text tip=""
   active=$(jq -r '.active // "local"' "$STATE" 2>/dev/null || echo local)
   zone=$active; [[ $zone == local ]] && zone=$LOCAL
-  text=" $(TZ=$zone date +%H:%M) $(short "$active")"
+  text=" $(TZ=$zone date +%H:%M)"
+  # the full dates (Gregorian + Jalali) from the date pill's script, above the zones
+  tip="$(python3 "$(dirname "$0")/dates.py" | jq -r .tooltip)"$'\n'
   while read -r z; do
     local tz=$z; [[ $tz == local ]] && tz=$LOCAL
     tip+=$(printf '%-14s %s' "$(city "$z")" "$(TZ=$tz date '+%H:%M  %a')")$'\n'

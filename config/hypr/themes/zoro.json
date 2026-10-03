@@ -1,6 +1,8 @@
 {
   "name": "Zoro",
   "character": "Roronoa Zoro",
+  "glyph": "crossed_swords",
+  "motion": "swing",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#141b19",

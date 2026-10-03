@@ -58,33 +58,7 @@ fi
 say "Installing Gear5 on $NAME_SHOWN ($FAMILY family)"
 
 # ---------------------------------------------------------------- packages
-FEDORA_PKGS=(
-  hyprland hyprlock hypridle xdg-desktop-portal-hyprland
-  waybar swaybg SwayNotificationCenter kitty nemo
-  python3-gobject gtk4 gtk4-layer-shell
-  qalculate cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
-  pulseaudio-utils bluez NetworkManager upower ddcutil libnotify jq socat plocate localsearch
-  mate-polkit xdg-utils google-noto-color-emoji-fonts vazirmatn-fonts hyprpicker
-  git curl tar
-)
-ARCH_PKGS=(
-  hyprland hyprlock hypridle xdg-desktop-portal-hyprland
-  waybar swaybg swaync kitty nemo
-  python-gobject gtk4 gtk4-layer-shell
-  libqalculate cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
-  libpulse bluez bluez-utils networkmanager upower power-profiles-daemon ddcutil libnotify jq socat
-  plocate localsearch mate-polkit xdg-utils ttf-jetbrains-mono-nerd noto-fonts-emoji hyprpicker
-  git curl unzip
-)
-UBUNTU_PKGS=(
-  hyprland hyprlock hypridle xdg-desktop-portal-hyprland
-  waybar swaybg sway-notification-center kitty nemo
-  python3-gi gir1.2-gtk-4.0 gir1.2-gtk4layershell-1.0 libgtk4-layer-shell0
-  qalc cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
-  pulseaudio-utils bluez network-manager upower power-profiles-daemon ddcutil libnotify-bin jq socat
-  plocate localsearch mate-polkit xdg-utils fonts-noto-color-emoji fonts-vazirmatn hyprpicker
-  git curl tar
-)
+. "$HERE/packages.sh"   # FEDORA_PKGS, ARCH_PKGS, UBUNTU_PKGS
 
 install_packages() {
   case "$FAMILY" in
@@ -197,6 +171,19 @@ install_battery_limits() {
   run systemctl --user enable --now battery-limits.service
 }
 
+# ---------------------------------------------------------------- night light
+install_night_light() {  # Settings > Displays > Night light; Off until a mode is picked
+  run cp "$HERE/config/systemd/user/night-light.service" "$CONFIG/systemd/user/"
+  run systemctl --user daemon-reload
+  run systemctl --user enable --now night-light.service
+}
+
+install_bar_gif() {  # the theme's GIF on the bar; the pill stays hidden for a theme without one
+  run cp "$HERE/config/systemd/user/bar-gif.service" "$CONFIG/systemd/user/"
+  run systemctl --user daemon-reload
+  run systemctl --user enable --now bar-gif.service
+}
+
 # ---------------------------------------------------------------- services
 enable_services() {
   # file search: the index for file names, and GNOME's indexer for names + contents
@@ -220,6 +207,8 @@ ask "Continue?" || { echo "Nothing changed."; exit 0; }
 if ((PACKAGES)); then install_packages; install_fonts; fi
 install_configs
 install_battery_limits
+install_night_light
+install_bar_gif
 ((PACKAGES)) && enable_services
 
 echo

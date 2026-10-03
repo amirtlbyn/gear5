@@ -17,8 +17,8 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import threading
+import weakref
 
 LAYER_LIBS = [
     "/usr/lib64/libgtk4-layer-shell.so.0",
@@ -45,9 +45,12 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import empty_state  # noqa: E402
 import fonts  # noqa: E402
 import palette  # noqa: E402
 import popup_backdrop  # noqa: E402
+import scrolling  # noqa: E402
+import thumbs  # noqa: E402
 
 # imported by tests through panel.load(): no window, the theme in use
 THEME = (
@@ -62,14 +65,11 @@ MAX_NUMBERED = 9
 MINIMIZED = "special:minimized"
 MINIMIZED_FILE = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "hypr-minimized")
 # captures hold other windows' content: only in the private runtime dir, never a shared /tmp
-THUMB_DIR = (
-    os.path.join(os.environ["XDG_RUNTIME_DIR"], "minimized-picker")
-    if os.environ.get("XDG_RUNTIME_DIR")
-    else None
-)
+THUMB_DIR = thumbs.thumb_dir("minimized-picker")
 
 ALIASES = {}
 P = palette.load(THEME, **ALIASES)
+OPENING_MS = 300  # cards drawn this soon after an open scale in (MOTION-3)
 
 CSS = fonts.swap(
     "".join(f"@define-color {k} {v};\n" for k, v in P.items())
@@ -84,7 +84,6 @@ entry.search {
   border-radius: 14px; border-bottom: 3px solid @edge; padding: 6px 14px; min-height: 46px;
   font-size: 16px; min-width: 360px;
 }
-.empty { color: @fg; font-size: 18px; font-weight: normal; padding: 40px; }
 flowbox { background: transparent; }
 flowbox > flowboxchild { padding: 0; margin: 8px; }
 flowbox > flowboxchild:focus { outline: none; }
@@ -108,7 +107,11 @@ flowbox > flowboxchild:focus { outline: none; }
   padding: 0px 6px; min-height: 0; min-width: 0; border: none; box-shadow: none;
 }
 .card-close:hover { background: @red; color: @on_accent; }
+/* MOTION-3: the cards of a fresh open scale in; cards drawn while typing do not */
+@keyframes card-in { from { opacity: 0; transform: scale(0.94); } to { opacity: 1; transform: none; } }
+.opening .card { animation: card-in 160ms ease-out; }
 """
+    + empty_state.CSS
 )
 
 
@@ -204,33 +207,9 @@ def close_cmd(address):
     return ["hyprctl", "eval", f'closeMinimized("{checked(address)}")']
 
 
-def capture_cmd(stable_id, out_path):
-    return ["grim", "-T", stable_id, out_path]
-
-
 def capture_thumbnail(client, thumb_dir=THUMB_DIR):
-    """Run in a worker thread: the captured PNG's path, or None (bad stableId, or
-    grim failed — the caller shows the icon placeholder instead)."""
-    stable_id = client.get("stableId")
-    if not stable_id or not thumb_dir:
-        return None
-    try:
-        os.makedirs(thumb_dir, mode=0o700, exist_ok=True)
-        fd, path = tempfile.mkstemp(dir=thumb_dir, suffix=".png")  # one file per capture: no races
-        os.close(fd)
-    except OSError:
-        return None
-    try:
-        r = subprocess.run(capture_cmd(stable_id, path), capture_output=True, timeout=5)
-        if r.returncode == 0 and os.path.getsize(path) > 0:
-            return path
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    try:
-        os.remove(path)
-    except OSError:
-        pass
-    return None
+    """Run in a worker thread: the captured PNG's path, or None (see thumbs.capture)."""
+    return thumbs.capture(client, thumb_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +232,10 @@ class Card(Gtk.FlowBoxChild):
         self.client = client
         self.address = client.get("address", "")
         self.number = number  # the badge it shows: the key that restores it
+        # the handlers reach this card through a weak reference: a lambda that holds
+        # the card itself is a cycle PyGObject never frees, so drop_cards() removed
+        # the cards but their thumbnails stayed in memory (LEAK-2)
+        me = weakref.ref(self)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.add_css_class("card")
         self.card_box = box
@@ -284,7 +267,7 @@ class Card(Gtk.FlowBoxChild):
         close.set_valign(Gtk.Align.START)
         close.set_margin_end(6)
         close.set_margin_top(6)
-        close.connect("clicked", lambda *_: app.close_window(self))
+        close.connect("clicked", lambda *_: app.close_window(me()))
         overlay.add_overlay(close)
         box.append(overlay)
         if self.address in app.textures:
@@ -299,7 +282,7 @@ class Card(Gtk.FlowBoxChild):
 
         self.set_child(box)
         middle = Gtk.GestureClick(button=2)
-        middle.connect("pressed", lambda *_: app.close_window(self))
+        middle.connect("pressed", lambda *_: app.close_window(me()))
         self.add_controller(middle)
 
     def set_selected(self, on):
@@ -322,6 +305,7 @@ class Picker(Gtk.Application):
         self.selected = 0
         self.empty = False
         self.closed_at = 0
+        self.opening_timer = 0
         self.start_hidden = "--hidden" in sys.argv
 
     def do_activate(self):
@@ -363,10 +347,25 @@ class Picker(Gtk.Application):
         self.windows = minimized_windows(read_clients())
         self.textures = {}
         self.search.set_text("")
+        self.mark_opening()
         self.render(reset=True)
         self.win.present()
         self.search.grab_focus()
         self.start_thumbnails()
+
+    def mark_opening(self):
+        """MOTION-3: the grid is "opening" for OPENING_MS, so only the cards of this
+        open scale in, not the ones drawn again while the person types a filter."""
+        if self.opening_timer:
+            GLib.source_remove(self.opening_timer)
+        self.flow.add_css_class("opening")
+
+        def done():
+            self.opening_timer = 0
+            self.flow.remove_css_class("opening")
+            return False
+
+        self.opening_timer = GLib.timeout_add(OPENING_MS, done)
 
     def leave(self, action=None):
         """INV-4: every exit path (restore, Esc, backdrop click, empty state, an
@@ -381,7 +380,7 @@ class Picker(Gtk.Application):
             self.drop_cards()
 
     def drop_cards(self):
-        """PH0-4: keep nothing while hidden (the thumbnails took ~150 MB);
+        """PH0-4: keep nothing while hidden (the thumbnails took ~150 MB).
         show_popup reads the windows and builds the cards again."""
         self.textures = {}
         while (child := self.flow.get_first_child()) is not None:
@@ -424,6 +423,7 @@ class Picker(Gtk.Application):
             return
         self.selected = max(0, min(len(self.cards) - 1, index))
         self.cards[self.selected].set_selected(True)
+        scrolling.reveal(self.scroll, self.flow, self.cards[self.selected])  # PICKNAV-1
 
     def start_thumbnails(self):
         for card in self.cards:
@@ -542,7 +542,13 @@ class Picker(Gtk.Application):
         self.search.connect("search-changed", lambda *_: self.on_search())
         popup.append(self.search)
 
-        self.empty_box = label("Nothing minimized", "empty")
+        self.empty_box = empty_state.EmptyState()
+        self.empty_box.update(
+            "Nothing is minimized.",
+            hint="SUPER+A minimizes the window you are in.",
+            button="Close",
+            action=lambda: self.leave(),
+        )
         popup.append(self.empty_box)
         # BATPICK-9: any click closes an empty picker (only the message shows then)
         empty_click = Gtk.GestureClick()

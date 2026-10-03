@@ -4,7 +4,7 @@ brightness card, Bluetooth list and footer, in that order and working, after
 the battery and brightness cards became panels shared with Settings. Run by
 smoke_popups.sh on a private D-Bus session over the live display:
 
-    GTK_A11Y=none dbus-run-session -- python3 tests/smoke_control_center.py
+    GTK_A11Y=none dbus-run-session --config-file=tests/private-bus.conf -- python3 tests/smoke_control_center.py
 
 Exit 0 when the popup built, battery, brightness and Bluetooth sit in the popup
 in the old order, and the brightness card filled from the real screens.
@@ -30,21 +30,21 @@ sys.excepthook = lambda *exc: (failed.append(exc), sys.__excepthook__(*exc))
 def check():
     ran.append(True)
     try:
-        names = []
+        children = []
         child = app.popup.get_first_child()
         while child is not None:
-            names.append(child)
+            children.append(child)
             child = child.get_next_sibling()
         for part, what in (
             (app.bat.root, "battery"),
             (app.bright.root, "brightness"),
             (app.bt.root, "bluetooth"),
         ):
-            if part not in names:
+            if part not in children:
                 failed.append(what)
                 print(f"FAIL the popup lost its {what} part", file=sys.stderr)
         if not failed and not (
-            names.index(app.bat.root) < names.index(app.bright.root) < names.index(app.bt.root)
+            children.index(app.bat.root) < children.index(app.bright.root) < children.index(app.bt.root)
         ):
             failed.append("order")
             print("FAIL battery/brightness/bluetooth order changed", file=sys.stderr)
@@ -60,7 +60,7 @@ def check():
     return False
 
 
-# the popup refreshes once at start (build + refresh); ddcutil needs a moment
+# the popup refreshes once at start (build + refresh). ddcutil needs a moment.
 GLib.timeout_add(4000, check)
 # only argv[0]: GLib's own option parser rejects "--hidden" as an unknown option and
 # returns from run() before activate fires, so check() never ran and the smoke

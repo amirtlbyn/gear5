@@ -1,6 +1,8 @@
 {
   "name": "Franky",
   "character": "Franky",
+  "glyph": "star",
+  "motion": "pop",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#111b22",

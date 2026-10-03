@@ -37,3 +37,26 @@ from it. The names are roles, not hues: in a pink theme, `green` can be pink.
 One picture for every theme: `~/.config/hypr/wallpapers/wallpaper.png` (or `.jpg`,
 `.jpeg`, `.webp`), set from Settings → Wallpaper. With no file, the desktop is filled
 with the current theme's `bg0` color.
+
+## Character moment
+
+A theme can name a small picture and a motion. The bar shows the picture as a sticker
+next to the desks, and the motion plays once when the theme changes and on each hover.
+Both keys are optional. Without them the sticker is a palette and the motion is `wobble`.
+In Settings → Stickers you can choose a different glyph and motion for any theme. Your
+choice wins over the theme file.
+
+| Key | Value |
+|---|---|
+| `glyph` | a name from the glyph list below |
+| `motion` | `wobble`, `bounce`, `spin`, `pop`, `stretch`, `swing`, `sway` or `none` |
+
+Glyphs (Material Design icons in the Nerd Font; the sticker takes the theme's `green`):
+
+- people: `pirate`, `ninja`, `person`, `smile`, `skull`, `skull_crossbones`, `ghost`, `robot`, `straw_hat`, `chef_hat`, `medical_bag`, `crown`
+- weather: `sun`, `lightning`, `cloud`, `rain`, `snow`, `wind`, `sunset`, `umbrella`, `snowflake`, `fire`, `water`, `waves`
+- nature: `palm_tree`, `flower`, `leaf`, `tree`, `pine_tree`, `cactus`, `sprout`, `mushroom`, `fish`, `paw`, `bird`, `cat`, `dog`, `rabbit`, `owl`, `butterfly`, `bee`, `penguin`
+- things: `crossed_swords`, `shield`, `bullseye`, `target`, `anchor`, `compass`, `map`, `treasure`, `key`, `diamond`, `rocket`, `wrench`, `hammer`, `cog`, `lightbulb`, `violin`, `music`, `coffee`, `beer`, `cocktail`, `ice_cream`, `gamepad`, `headphones`, `camera`, `bomb`, `earth`, `flag`, `palette`
+- symbols: `star`, `heart`, `flash`
+
+An unknown name is ignored.

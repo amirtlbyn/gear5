@@ -24,6 +24,10 @@
   padding: 10px 12px;
   box-shadow: none;
 }
+/* the strip on the left, in the theme's colors (roadmap 4.3): the main accent for
+   normal, dimmer for low, red for critical */
+.notification.normal { box-shadow: inset 4px 0 0 @green; }
+.notification.low    { box-shadow: inset 4px 0 0 @grey; }
 .notification.critical {
   border-bottom-color: @red_edge;
   background: @bg0;
@@ -73,6 +77,33 @@
   padding: 6px;
 }
 .control-center .notification { background: @bg1; }
+
+/* one app's notifications, stacked (config.json: notification-grouping). This file
+   replaces swaync's default style, so the group needs its own rules */
+.notification-group,
+.notification-group:focus { background: transparent; box-shadow: none; }
+.notification-group .notification-group-headers { color: @fg; margin: 4px 16px; }
+.notification-group .notification-group-header  { color: @fg; font-size: 14px; }
+.notification-group .notification-group-icon    { color: @fg; -gtk-icon-size: 20px; }
+.notification-group .notification-group-buttons { margin: 4px 16px; }
+.notification-group .notification-group-buttons button {
+  background: @bg1;
+  color: @fg;
+  border: none;
+  border-radius: 8px;
+  border-bottom: 3px solid @edge_deep;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0 6px;
+}
+.notification-group .notification-group-buttons button:hover { background: @bg2; }
+.notification-group .notification-group-close-button .close-button {
+  background: @red;
+  color: @bg0;
+  border-bottom-color: @red_edge;
+  margin: 6px 16px;
+}
+.notification-group.collapsed.not-expanded { opacity: 0.5; }
 .control-center-list, .control-center-list-placeholder { background: transparent; color: @grey; }
 
 .widget-title { color: @fg; font-size: 16px; margin: 8px 10px; }

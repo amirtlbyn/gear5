@@ -30,8 +30,10 @@ LAPTOP = {
 def test_the_applied_layout_is_written_for_the_next_reload(tmp_path, monkeypatch):
     """PH0-1: given the laptop screen alone and no saved layout, when --auto finds
     nothing to change, then it changes nothing on screen but writes the layout
-    hyprland.lua loads after its monitor lines, and writes it again only when it
-    changes; hyprland.lua reads it with loadfile, so the write does not reload."""
+    hyprland.lua loads after its monitor lines. Given a layout that differs from
+    the screens, when apply() applies it, then the file and the hyprctl call both
+    carry that layout. The file is written again only when its text changes.
+    hyprland.lua reads it with loadfile, so the write does not reload."""
     layout = tmp_path / "displays-current.lua"
     evals = []
     monkeypatch.setattr(mod, "LAYOUT_LUA", str(layout))
@@ -48,6 +50,14 @@ def test_the_applied_layout_is_written_for_the_next_reload(tmp_path, monkeypatch
     os.utime(layout, (1, 1))
     mod.auto()
     assert os.path.getmtime(layout) == 1  # same text: not written again
+
+    # the other PH0-1 trigger: a real change goes through apply(), and the file
+    # and the hyprctl call both carry the new position
+    moved = mod.Screen(dict(LAPTOP))
+    moved.x, moved.y = 3000, 360
+    mod.apply([moved])
+    assert len(evals) == 1 and 'position = "3000x360"' in evals[0][2]
+    assert 'position = "3000x360"' in layout.read_text()
 
     lua = open(os.path.join(ROOT, "config", "hypr", "hyprland.lua")).read()
     monitors_end = lua.index("---------------- Environment ----------------")

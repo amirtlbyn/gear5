@@ -20,13 +20,15 @@ your distro automatically.
 | `SUPER+V` | Clipboard history: filters, **pin** text and pictures (`Ctrl+P`) |
 | `SUPER+.` | Emoji picker (Unicode 18), pastes into the app you were using |
 | `SUPER+P` | **Displays**: Laptop only · Extend · Duplicate · External only, drag to arrange, resolution, scale, rotation, mirror. Keep-or-revert in 15 s; layouts are **remembered per set of screens** and come back when you plug them in |
-| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, fonts (English + Persian), displays, Wi-Fi, Bluetooth, sound, power & sleep (battery, power mode, brightness of every screen), **Battery** (charge limits: presets, stop/start, speed), notifications, keyboard layouts, touchpad, gaps, animations, all in one window (no other app opens) |
+| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, a lock screen picture per theme, **Stickers** (a glyph, a motion and an optional GIF for each theme), fonts (English + Persian), displays (per-screen brightness, night light), Wi-Fi, Bluetooth, sound, power & sleep (power mode, the sleep timer), **Battery** (level, health, charge limits: presets, stop/start, speed), notifications, keyboard layouts, touchpad, gaps, animations, the bar background strip, all in one window (no other app opens) |
 | `SUPER+A` | **Minimize** the window; the bar shows how many are minimized (click it to open the picker below) |
 | `SUPER+-` | Bring back the last minimized window onto the desk you're on (again for the one before) |
 | `SUPER+SHIFT+-` | **Minimized windows** picker: a thumbnail card for each, newest first — type to filter, arrows + Enter or its number to bring one back, Delete / middle-click / its × to close it |
+| `SUPER+Tab` | **Overview**: every desk with windows, one row each, a thumbnail card per window (then the minimized ones). Click or Enter goes to that window on its desk; `1`…`0` go to a desk; type to filter. Window groups: `SUPER+G` makes one, `SUPER+SHIFT+G` goes to the next window in it |
 | `SUPER+N` | Notifications (swaync) |
 | `SUPER+L` | Lock (hyprlock) |
 | `SUPER+B` | Power menu |
+| `SUPER+SHIFT+Esc` | **Unstick**: an open popup that hangs and keeps the keyboard is closed and started again |
 | `SUPER+1…0` | Desk 1–10 — **every monitor switches together** |
 | `SUPER+Right/Left` | Cycle through the windows of this desk, across monitors |
 | `SUPER+Space`, `Alt+Shift` | Next keyboard layout (on every keyboard at once) |
@@ -37,7 +39,8 @@ From the bar:
   every player and browser tab.
 - **Quick settings**: battery and power mode, Wi-Fi, Bluetooth devices (with their
   battery), Do Not Disturb, stay awake, screen brightness (DDC/CI for external screens).
-- **Calendar**: Gregorian / Persian (Solar Hijri) with weather; **world clock**.
+- **Clock**: click the bar clock (either button) for one popup with a calendar
+  (Gregorian / Persian Solar Hijri, with weather) and up to 4 pinned timezones.
 - **Idle timer**: lock / sleep after N minutes, or stay awake.
 
 Every popup opens instantly (they stay running hidden), closes with `Esc` or a click
@@ -52,7 +55,7 @@ Every popup opens instantly (they stay running hidden), closes with `Esc` or a c
 | Ubuntu / Kubuntu | 26.04 LTS+ | [cppiber/hyprland](https://launchpad.net/~cppiber/+archive/ubuntu/hyprland) PPA |
 
 Ubuntu 24.04 isn't supported: it has no `gtk4-layer-shell`, which every popup needs.
-On other distros, install the packages yourself (see `install.sh` for the list) and
+On other distros, install the packages yourself (see `packages.sh` for the list) and
 run `./install.sh --configs-only`.
 
 ## Install
@@ -74,6 +77,11 @@ Then log out and choose **Hyprland** on the login screen (GDM, SDDM, …).
 To undo: delete `~/.config/{hypr,waybar,swaync}` and move the folders back out of the
 backup.
 
+If something stops working (a popup does not open, charge limits do nothing, a
+Flatpak app will not start), run `./doctor.sh`. It checks the packages, the battery
+udev rule, the user services and the document portal, and the popups, and prints the
+command that fixes each problem. It changes nothing by itself.
+
 ## Make it yours
 
 - **Theme and wallpaper**: `SUPER+I` → Theme / Wallpaper. From a terminal:
@@ -81,15 +89,27 @@ backup.
   recolors in place (it restarts only if it was not already running); popups, borders,
   lock screen, wallpaper and kitty's colors all switch too; see
   `~/.config/hypr/themes/README.md` to make your own.
+- **Stickers**: each theme has a small sticker. The pop-up shows a Nerd Font glyph with
+  a motion for about two seconds under the bar when you switch theme. `SUPER+I` →
+  Stickers turns each one off, and changes the glyph and motion of any theme, your own
+  included; Preview shows the pop-up. You can add a GIF of your own for a theme (8 MB
+  or less, kept as `~/.config/hypr/characters/<theme id>.sticker.gif`, never in git).
+  The GIF then plays on the bar, left of the desks (click it to open the page), and on
+  the lock screen above the clock. A theme with no GIF has no pill on the bar. Neither
+  Waybar nor hyprlock plays a GIF, so both show its frames one after the other
+  (a flip-book). *Bar GIF plays* chooses when the bar moves: always, only on AC power
+  (the default), or for 5 s after a theme switch; otherwise it rests on the first
+  frame. The lock screen plays while it is locked. No picture ships with the project.
 - **Fonts**: `SUPER+I` → Fonts. The English (mono) and the Persian font of the bar,
   popups, notifications, lock screen and kitty, chosen from the installed families
   and applied everywhere at once.
-- **Everything else**: `SUPER+I` has a page for displays, Wi-Fi, Bluetooth, sound,
-  power & sleep (battery, power mode, every screen's brightness, the sleep timer,
-  and lock / sleep / reboot / power off), **Battery** (charge limits, where the
-  firmware's `charge_types` can be written — a `battery-limits` user service enforces
+- **Everything else**: `SUPER+I` has a page for displays (with each screen's
+  brightness, and a night light that follows sunset or a schedule), Wi-Fi, Bluetooth, sound, power & sleep (power mode, the sleep
+  timer, and lock / sleep / reboot / power off), **Battery** (level, health,
+  cycles, and charge limits, where the firmware's `charge_types` can be written —
+  a `battery-limits` user service enforces
   them at login, every 30 s, and within 2 s of a change), notifications, keyboard &
-  touchpad, and look & behavior (gaps, animations). Displays, Wi-Fi, Sound and the
+  touchpad, and look & behavior (gaps, animations, the bar strip). Displays, Wi-Fi, Sound and the
   power page's panels are the same as the bar popups'. Bluetooth is the Bluetooth
   part of Quick settings. `settings.py <page>` opens a page directly (e.g.
   `settings.py wifi`). Your keyboard, touchpad and look choices are kept in
@@ -104,16 +124,8 @@ backup.
   `~/.config/hypr/displays.json`, one per set of connected screens. For fixed rules,
   see the *Monitors* section of `hyprland.lua`; `HOME_SLOTS` pins external screens to a
   desk block.
-- **Compact bar on a vertical screen**: add a second bar to
-  `~/.config/waybar/bar/config` and exclude that screen from the first one:
-  ```jsonc
-  [
-    { "output": ["!DP-1", "*"], /* …the normal bar… */ },
-    { "output": "DP-1", "width": 440, "height": 60, "layer": "top", "position": "top",
-      "modules-center": ["group/desks"],
-      "include": ["~/.config/waybar/bar/modules.jsonc"] }
-  ]
-  ```
+- **Vertical screens** get a compact bar with only the workspaces, automatically
+  (`waybar/scripts/bar_config.py` reads which screens are rotated).
 - **Lock screen picture**: save any square image as `~/.face`.
 - **Bar logo**: detected from `/etc/os-release`; force one with
   `echo arch > ~/.config/waybar/distro`.
@@ -155,6 +167,10 @@ anyone the right to redistribute them. So each person adds their own:
    `~/.config/hypr/wallpapers/wallpaper.png` (or `.jpg`, `.jpeg`, `.webp`). It is the
    same picture for every theme; with none, the desktop is filled with the current
    theme's background color.
+3. For the lock screen, pick a picture per theme from `SUPER+I` → Lock screen →
+   Choose… (kept as `~/.config/hypr/characters/<theme id>.png`, never in git). It shows
+   above the clock when that theme is in use. A GIF from Stickers wins over it; a theme
+   with neither shows `~/.face`, if you have one. The lock screen also shows the battery and what is playing.
 
 To change a character's colors, edit `~/.config/hypr/themes/<theme id>.json` (the color
 names are explained in `~/.config/hypr/themes/README.md`), then apply it again. To add

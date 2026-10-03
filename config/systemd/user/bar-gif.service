@@ -1,0 +1,11 @@
+[Unit]
+Description=The theme's GIF on the bar (a flip-book for Waybar's image module)
+PartOf=hyprland-session.target
+
+[Service]
+ExecStart=%h/.config/waybar/scripts/gif_player.py --bar
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=hyprland-session.target

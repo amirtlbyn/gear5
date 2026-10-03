@@ -1,6 +1,8 @@
 {
   "name": "Usopp",
   "character": "Usopp",
+  "glyph": "target",
+  "motion": "wobble",
   "gtk": "Adwaita:dark",
   "colors": {
     "bg_dim": "#211c19",

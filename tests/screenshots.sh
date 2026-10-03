@@ -117,7 +117,6 @@ echo "ok   desktop.png"
 shot_popup volume-popup   popup-volume
 shot_popup control-center popup-control-center
 shot_popup wifi-menu      popup-wifi
-shot_popup calendar-popup popup-calendar
 shot_popup power-popup    popup-power
 shot_popup calculator     popup-calculator
 shot_popup worldclock     popup-worldclock
@@ -131,6 +130,9 @@ shot_popup minimized-picker popup-minimized-picker
 # every Settings page, then the theme editor
 shot_settings theme         settings-theme
 shot_settings wallpaper     settings-wallpaper
+shot_settings lockscreen    settings-lockscreen
+shot_settings stickers      settings-stickers
+shot_settings fonts         settings-fonts
 shot_settings displays      settings-displays
 shot_settings wifi          settings-wifi
 shot_settings bluetooth     settings-bluetooth

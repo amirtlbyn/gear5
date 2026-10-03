@@ -28,17 +28,48 @@ def test_screenshot_links_resolve_and_readme_links_the_page():
 
 
 def test_docs_describe_the_power_page_and_its_new_shots():
-    """G5-7: given README.md and docs/SCREENSHOTS.md, when the power page gained
-    battery, power mode, brightness and the now-actions, then both describe them
-    and link the power popup and Power & sleep screenshots."""
+    """G5-7: given README.md and docs/SCREENSHOTS.md, when the power page became
+    the power mode and the sleep actions (the battery and brightness moved to
+    their own pages), then both describe it that way and link the power popup
+    and Power & sleep screenshots."""
     readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
-    assert "battery, power mode, brightness of every screen" in readme
+    assert "power mode, the sleep timer" in readme
     assert "lock / sleep / reboot / power off" in readme
     shots = open(PAGE, encoding="utf-8").read()
     power = shots.split("### Power & sleep", 1)[1].split("###", 1)[0]
-    assert "attery" in power and "rightness" in power and "eboot" in power
+    assert "Power mode" in power and "eboot" in power
     for stem in ("settings-power", "popup-power"):
         assert f"screenshots/{stem}.png" in shots
+
+
+def test_screenshots_page_shows_the_reorganized_pages():
+    """SHOT-1: given docs/SCREENSHOTS.md, when the battery and the brightness
+    moved pages (BATT, BRT), then the Power & sleep section promises neither
+    (the old words are gone), the Settings Displays section names the selected
+    screen's brightness, and the Battery and minimized-picker sections link
+    their shots with no pending notes left."""
+    shots = open(PAGE, encoding="utf-8").read()
+    power = shots.split("### Power & sleep", 1)[1].split("###", 1)[0]
+    assert "Power mode" in power and "Battery and power mode" not in power
+    displays = shots.split("### Displays", 2)[2].split("###", 1)[0]
+    assert "brightness" in displays
+    assert "screenshots/settings-battery.png" in shots
+    assert "screenshots/popup-minimized-picker.png" in shots
+    assert "pending" not in shots
+
+
+def test_readme_sends_each_setting_to_its_page():
+    """SHOT-2: given README.md, when a reader looks for the battery or a screen's
+    brightness, then the Settings row and the Everything-else bullet send the
+    battery (level, health, limits) to Battery, the brightness to Displays, and
+    the power mode to Power & sleep."""
+    readme = open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
+    row = next(line for line in readme.splitlines() if "SUPER+I" in line)
+    assert "**Battery** (level, health" in row and "per-screen brightness" in row
+    bullet = readme.split("**Everything else**", 1)[1].split("\n- ", 1)[0]
+    assert "each screen's" in bullet and "power mode, the sleep" in bullet
+    assert "**Battery** (level, health," in bullet
+    assert "battery, power mode, brightness of every screen" not in readme
 
 
 def test_readme_describes_the_fonts_page_and_kitty_theming():
