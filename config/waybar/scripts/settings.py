@@ -182,6 +182,16 @@ def swaync(*args):
         return ""
 
 
+def first_frame(path):
+    """A GIF's first picture as a texture, or None when it cannot be read.
+    Gtk.Picture.new_for_filename loads a GIF but draws nothing (GTK 4.22), so the
+    GIF is decoded here and the picture gets the texture."""
+    try:
+        return Gdk.Texture.new_from_filename(path)
+    except GLib.Error:
+        return None
+
+
 def swatch(colors, names=("bg0", "fg", "green", "blue", "red", "yellow")):
     """A strip of a theme's main colors."""
     area = Gtk.DrawingArea(content_height=34, hexpand=True)
@@ -642,7 +652,7 @@ class Settings(Gtk.Application):
             inner.append(swatch(colors))
             path = theme_gif.gif(tid)
             if path:  # the first picture: a GIF that plays here would cost 11 players
-                picture = Gtk.Picture.new_for_filename(path)
+                picture = Gtk.Picture.new_for_paintable(first_frame(path))
                 picture.set_size_request(-1, 90)
                 self.gif_pictures[tid] = picture
                 inner.append(picture)
@@ -769,7 +779,7 @@ class Settings(Gtk.Application):
         playing, self.gif_playing = self.gif_playing, None
         picture = self.gif_pictures.get(playing)
         if restore and picture is not None and theme_gif.gif(playing):
-            picture.set_filename(theme_gif.gif(playing))
+            picture.set_paintable(first_frame(theme_gif.gif(playing)))
 
     def rename_button(self, theme_id, name):
         """A button whose popover renames a custom theme in place."""

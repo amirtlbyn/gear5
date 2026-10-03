@@ -67,6 +67,7 @@ def test_a_picked_gif_is_copied_in_a_bad_one_is_refused_and_a_removed_one_goes(t
         json=json,
         os=os,
         theme_gif=types.SimpleNamespace(gif_dir=theme_gif.gif_dir, gif=lambda t: str(themes / f"{t}.gif")),
+        first_frame=lambda path: ("first frame of", path),
         palette=types.SimpleNamespace(current=lambda: "summer-night"),
         GLib=types.SimpleNamespace(
             timeout_add=lambda ms, fn: timers.setdefault(max(timers, default=0) + 1, (ms, fn)) and max(timers),
@@ -91,7 +92,8 @@ def test_a_picked_gif_is_copied_in_a_bad_one_is_refused_and_a_removed_one_goes(t
     tick()
     assert [os.path.basename(f) for f in in_use.files] == ["000.png", "001.png"] and len(timers) == 1
     flip["gif_flip_stop"](card)
-    assert timers == {} and in_use.files[-1] == str(themes / "summer-night.gif") and other.files == []
+    assert timers == {} and in_use.files[-1] == ("first frame of", str(themes / "summer-night.gif"))
+    assert other.files == []
 
     ns["set_theme_gif"](page, "summer-night", str(bad))
     assert "Pick a GIF file" in page.gif_error
@@ -108,6 +110,9 @@ class FakePicture:
 
     def set_filename(self, path):
         self.files.append(path)
+
+    def set_paintable(self, paintable):
+        self.files.append(paintable)
 
 
 def _outcome(work):
