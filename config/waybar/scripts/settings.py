@@ -3,7 +3,7 @@
 Settings (SUPER+I, or the button in the control center), in the theme's colors.
 
   settings.py [PAGE]      open on that page: theme, wallpaper, fonts, displays, wifi,
-                          bluetooth, sound, power, battery, notifications, keyboard, look
+                          bluetooth, sound, power, battery, notifications, keyboard, shortcuts, look
   settings.py theme-new           open the theme editor for a new theme
   settings.py theme-edit-ID       open the theme editor for a custom theme
 
@@ -19,6 +19,8 @@ Settings (SUPER+I, or the button in the control center), in the theme's colors.
 - Battery: charge limits (presets, stop/start thresholds, charge speed), kept
   in user-settings.json and enforced by the battery-limits service (battery.py).
 - Notifications: Do Not Disturb and Clear all (swaync).
+- Shortcuts: the desktop's keyboard shortcuts (from hyprland.lua, see shortcuts.py). Click a
+  key button and press the new keys, turn a shortcut Off, or Reset it. Kept in user-settings.json.
 - Keyboard & touchpad, Look & behavior: layouts, touchpad, gaps, animations, the bar strip.
   Kept in ~/.config/hypr/user-settings.json (see settings_store.py).
 
@@ -47,6 +49,7 @@ import palette  # noqa: E402
 import panel  # noqa: E402
 import popup_backdrop  # noqa: E402
 import settings_store as store  # noqa: E402
+import shortcuts  # noqa: E402
 import theme_gif  # noqa: E402
 import theme_maker  # noqa: E402
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
@@ -68,6 +71,7 @@ PAGES = [
     ("battery", "\U000f0079", "Battery"),
     ("notifications", "\U000f009a", "Notifications"),
     ("keyboard", "\U000f030c", "Keyboard & touchpad"),
+    ("shortcuts", "\U000f0313", "Shortcuts"),
     ("look", "\U000f0568", "Look & behavior"),
 ]
 SECTIONS = {"theme": "APPEARANCE", "displays": "SYSTEM", "keyboard": "INPUT & DESKTOP"}  # heading before
@@ -81,6 +85,26 @@ PANELS = {  # page -> [(popup, panel class), …]: the bar popups' own panels, s
         ("power-popup", "PowerPanel"),
     ],
     "battery": [("battery-page", "BatteryLimitsPanel")],
+}
+SHORTCUT_GROUPS = {  # the part of a shortcut's name before the dot -> its heading
+    "apps": "APPS & MENUS",
+    "windows": "WINDOWS",
+    "desks": "DESKS",
+    "shots": "SCREENSHOTS",
+    "system": "SYSTEM",
+}
+MOD_MASKS = (  # Hyprland's name of each modifier a key press can carry
+    ("SUPER", Gdk.ModifierType.SUPER_MASK),
+    ("CTRL", Gdk.ModifierType.CONTROL_MASK),
+    ("ALT", Gdk.ModifierType.ALT_MASK),
+    ("SHIFT", Gdk.ModifierType.SHIFT_MASK),
+)
+MODIFIER_KEYS = {  # pressing one of these alone records nothing yet
+    getattr(Gdk, f"KEY_{n}")
+    for n in (
+        "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R", "Super_L", "Super_R",
+        "Meta_L", "Meta_R", "Hyper_L", "Hyper_R", "ISO_Level3_Shift", "Caps_Lock", "Num_Lock",
+    )
 }
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp")
 BAR_GIF_NAMES = (("always", "Always"), ("ac", "Only on AC power"), ("switch", "Only after a theme switch (5 s)"))
@@ -353,6 +377,8 @@ class Settings(Gtk.Application):
         self.panels = {}  # page -> [(panel, its module, its CSS provider)], built when first shown
         self.prefetched = set()  # the panel pages prefetch_panel has tried
         self.theme = None  # the theme the window is drawn in
+        self.recording = None  # the shortcut being recorded: (name, its key button, the button's label, key controller)
+        self.shortcut_errors = {}  # shortcut name -> the label under its row
 
     # ----- lifecycle -----------------------------------------------------------
     def do_command_line(self, cmd):
@@ -419,6 +445,7 @@ class Settings(Gtk.Application):
         win = Gtk.ApplicationWindow(application=self, title="Settings", default_width=860, default_height=640)
         win.add_css_class("settings")
         win.connect("close-request", self.on_close)
+        win.connect("notify::is-active", lambda w, _p: w.is_active() or self.shortcut_stop())
         self.win = win
 
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -441,6 +468,7 @@ class Settings(Gtk.Application):
             fonts=self.fonts_page,
             notifications=self.notifications_page,
             keyboard=self.keyboard_page,
+            shortcuts=self.shortcuts_page,
             look=self.look_page,
         )
         for key, _icon, _name in PAGES:
@@ -491,6 +519,7 @@ class Settings(Gtk.Application):
         handler_id = adj.connect("changed", when_laid_out)
 
     def show_page(self, key):
+        self.shortcut_stop()
         if key != self.page:
             self.panel_hidden(self.page)
         self.page = key
@@ -508,6 +537,7 @@ class Settings(Gtk.Application):
             self.page_shown(key)
 
     def on_close(self, win):
+        self.shortcut_stop()
         self.gif_flip_stop()
         self.panel_hidden(self.page)
         win.set_visible(False)
@@ -1327,6 +1357,122 @@ class Settings(Gtk.Application):
         )
         box.append(self.switch_row("Tap to click", "A light tap is a click.", s, "tap_to_click"))
         return box
+
+    # ----- shortcuts (KEYS) ----------------------------------------------------------------
+    def shortcut_rows(self):
+        """KEYS-1: [(name, label, group, keys now, default keys)] — the user's keys, else the default; "" is Off."""
+        mine = store.load()["shortcuts"]
+        try:
+            found = shortcuts.catalog()
+        except OSError:  # hyprland.lua is not installed: an empty page, not a crash
+            return []
+        return [(name, label, group, mine.get(name, keys), keys) for name, label, group, keys in found]
+
+    def shortcuts_page(self):
+        box = self.page_box(
+            "Shortcuts",
+            "Click the keys of a shortcut, then press the new keys. Saved in "
+            "~/.config/hypr/user-settings.json and applied at once.",
+        )
+        self.error = label("", "error", xalign=0, wrap=True, visible=False)
+        box.append(self.error)
+        mine = store.load()["shortcuts"]
+        reset_all = Gtk.Button(label="Reset all", halign=Gtk.Align.START, sensitive=bool(mine))
+        reset_all.add_css_class("act")
+        reset_all.connect("clicked", lambda *_: self.shortcut_reset_all())
+        box.append(reset_all)
+        self.shortcut_errors = {}
+        rows = self.shortcut_rows()
+        for group, heading in SHORTCUT_GROUPS.items():
+            members = [r for r in rows if r[2] == group]
+            if not members:
+                continue
+            box.append(label(heading, "section", xalign=0))
+            for name, title, _group, keys, default in members:
+                row, text = self.row(title, f"Default: {default}")
+                self.shortcut_errors[name] = label("", "error", xalign=0, wrap=True, visible=False)
+                text.append(self.shortcut_errors[name])
+                key_btn = Gtk.Button(label=shortcuts.keys_label(keys), valign=Gtk.Align.CENTER)
+                key_btn.add_css_class("act")
+                key_btn.connect("clicked", lambda b, n=name: self.shortcut_start(n, b))
+                off_btn = Gtk.Button(label="Off", valign=Gtk.Align.CENTER, sensitive=keys != "")
+                off_btn.connect("clicked", lambda _b, n=name: self.shortcut_set(n, ""))
+                reset_btn = Gtk.Button(label="Reset", valign=Gtk.Align.CENTER, sensitive=name in mine)
+                reset_btn.connect("clicked", lambda _b, n=name: self.shortcut_set(n, None))
+                for b in (key_btn, off_btn, reset_btn):
+                    row.append(b)
+                box.append(row)
+        return box
+
+    def shortcut_start(self, name, button):
+        """Recording: the next press that is not a modifier alone becomes the keys. The window
+        asks Hyprland to pass every shortcut (SUPER+Q too) to it until the recording ends."""
+        self.shortcut_stop()
+        for error in self.shortcut_errors.values():  # an old refusal is about other keys
+            error.set_visible(False)
+        ctl = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        ctl.connect("key-pressed", self.on_shortcut_key)
+        self.win.add_controller(ctl)
+        self.win.get_surface().inhibit_system_shortcuts(None)
+        self.recording = (name, button, button.get_label(), ctl)
+        button.set_label("Press the new keys… (Esc cancels)")
+
+    def shortcut_stop(self):
+        """End a recording and give the shortcuts back to Hyprland; nothing is saved."""
+        if self.recording is None:
+            return
+        _name, button, text, ctl = self.recording
+        self.recording = None
+        self.win.get_surface().restore_system_shortcuts()
+        self.win.remove_controller(ctl)
+        button.set_label(text)
+
+    def on_shortcut_key(self, ctl, keyval, keycode, state):
+        if keyval in MODIFIER_KEYS:
+            return True
+        mods = [name for name, mask in MOD_MASKS if state & mask]
+        if keyval == Gdk.KEY_Escape and not mods:  # KEYS-7
+            self.shortcut_stop()
+            return True
+        # the key without Shift on the first layout: GTK says "exclam" for SHIFT+1 and a
+        # Persian letter while that layout is on, Hyprland's binds use "1" and "Q"
+        found, plain, *_rest = self.win.get_display().translate_key(keycode, 0, 0)
+        name = self.recording[0]
+        self.shortcut_stop()
+        self.shortcut_record(name, mods, Gdk.keyval_name(plain if found else keyval))
+        return True
+
+    def shortcut_record(self, name, mods, keyname):
+        """KEYS-3: save the pressed keys for `name`, or say why not under its row."""
+        keys = shortcuts.keys_text(mods, keyname)
+        rows = self.shortcut_rows()
+        current = [(n, label_, k) for n, label_, _g, k, _d in rows]
+        why = shortcuts.conflict(keys, name, current, shortcuts.live_binds())
+        if why:
+            self.shortcut_errors[name].set_label(f"{keys}: {why}")
+            self.shortcut_errors[name].set_visible(True)
+            return
+        default = next(d for n, _l, _g, _k, d in rows if n == name)
+        self.shortcut_set(name, None if keys == default else keys)  # the default keys: no change to keep
+
+    def shortcut_set(self, name, keys):
+        """Save `keys` for `name`: "" is Off (KEYS-4), None takes the saved change away (KEYS-5)."""
+        self.shortcut_stop()
+        mine = dict(store.load()["shortcuts"])
+        if keys is None:
+            mine.pop(name, None)
+        else:
+            mine[name] = keys
+        self.save(shortcuts=mine)
+        if not self.error.get_visible():
+            self.rebuild("shortcuts")
+
+    def shortcut_reset_all(self):
+        """KEYS-5: every shortcut gets its default keys back."""
+        self.shortcut_stop()
+        self.save(shortcuts={})
+        if not self.error.get_visible():
+            self.rebuild("shortcuts")
 
     def look_page(self):
         box = self.page_box(

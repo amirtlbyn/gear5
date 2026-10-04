@@ -186,8 +186,10 @@ hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 
 -- your choices from Settings (SUPER+I) win over the values above; the file is
 -- written by waybar/scripts/settings_store.py, and a missing file changes nothing
-pcall(require, "user-settings")
+local okUser, user = pcall(require, "user-settings")
 package.loaded["user-settings"] = nil       -- a reload after a change reads the new file
+-- keys the user chose for a shortcut: name -> keys, "" = off (see shortcut() below)
+local userKeys = (okUser and type(user) == "table" and type(user.shortcuts) == "table") and user.shortcuts or {}
 
 ---------------- Window rules ----------------
 hl.window_rule({ name = "pavucontrol", match = { class = "^(org.pulseaudio.pavucontrol|pavucontrol)$" }, float = true, center = true, size = "600 800" })
@@ -199,45 +201,57 @@ hl.window_rule({ name = "file-dialogs",match = { title = "^(Confirm to replace f
 
 ---------------- Keybinds ----------------
 local function bind(keys, action, opts) hl.bind(keys, action, opts) end
+-- a shortcut the user can change in Settings. `name` ("group.word") is how Settings
+-- finds it, whatever its keys are; the description "name|label" shows in `hyprctl binds`.
+-- The user's keys win; "" turns it off; keys Hyprland can't read fall back to the default.
+local function shortcut(name, label, keys, action, opts)
+    local o = { description = name .. "|" .. label }
+    for k, v in pairs(opts or {}) do o[k] = v end
+    local mine = userKeys[name]
+    if mine == "" then return end
+    -- hl.bind logs keys it can't read and returns nil (it does not raise)
+    if type(mine) == "string" and hl.bind(mine, action, o) then return end
+    hl.bind(keys, action, o)
+end
 local exec = hl.dsp.exec_cmd
 
 -- apps & menus
-bind(mainMod .. " + Return", exec(terminal))
-bind(mainMod .. " + E",      exec(fileManager))
+shortcut("apps.terminal", "Terminal", mainMod .. " + Return", exec(terminal))
+shortcut("apps.files", "File manager", mainMod .. " + E", exec(fileManager))
 -- launcher: stays running hidden, opens instantly; most-used apps first
-bind(mainMod .. " + D",      exec("~/.config/waybar/scripts/popup.sh launcher"))
-bind(mainMod .. " + B",      exec("~/.config/waybar/scripts/popup.sh power-popup"))
-bind(mainMod .. " + C",      exec("~/.config/waybar/scripts/popup.sh calculator"))
-bind(mainMod .. " + V",      exec("~/.config/waybar/scripts/popup.sh clipboard"))
-bind(mainMod .. " + period", exec("~/.config/waybar/scripts/popup.sh emoji-picker"))
-bind(mainMod .. " + I",      exec("~/.config/waybar/scripts/settings.py"))
+shortcut("apps.launcher", "App launcher", mainMod .. " + D", exec("~/.config/waybar/scripts/popup.sh launcher"))
+shortcut("apps.power", "Power menu", mainMod .. " + B", exec("~/.config/waybar/scripts/popup.sh power-popup"))
+shortcut("apps.calculator", "Calculator", mainMod .. " + C", exec("~/.config/waybar/scripts/popup.sh calculator"))
+shortcut("apps.clipboard", "Clipboard history", mainMod .. " + V", exec("~/.config/waybar/scripts/popup.sh clipboard"))
+shortcut("apps.emoji", "Emoji picker", mainMod .. " + period", exec("~/.config/waybar/scripts/popup.sh emoji-picker"))
+shortcut("apps.settings", "Settings", mainMod .. " + I", exec("~/.config/waybar/scripts/settings.py"))
 
 -- session
-bind(mainMod .. " + M",         hl.dsp.exit())
-bind(mainMod .. " + SHIFT + R", exec("hyprctl reload && notify-send 'Hyprland reloaded'"))
+shortcut("system.exit", "Log out of Hyprland", mainMod .. " + M", hl.dsp.exit())
+shortcut("system.reload", "Reload Hyprland", mainMod .. " + SHIFT + R", exec("hyprctl reload && notify-send 'Hyprland reloaded'"))
 -- a way out when an open popup hangs and keeps the keyboard: kill it, start it again hidden
-bind(mainMod .. " + SHIFT + Escape", exec("~/.config/waybar/scripts/popup.sh --unstick"))
+shortcut("system.unstick", "Fix a stuck popup", mainMod .. " + SHIFT + Escape", exec("~/.config/waybar/scripts/popup.sh --unstick"))
 -- switch the language on every keyboard together (Alt+Shift in either order, or SUPER+Space)
 local switchLayout = exec("~/.config/hypr/scripts/switch-layout.sh")
-bind(mainMod .. " + SPACE",     switchLayout)
-bind("ALT + Shift_L",           switchLayout)
-bind("SHIFT + Alt_L",           switchLayout)
+shortcut("system.layout", "Switch language", mainMod .. " + SPACE", switchLayout)
+shortcut("system.layout_alt", "Switch language (Alt, then Shift)", "ALT + Shift_L", switchLayout)
+shortcut("system.layout_alt_rev", "Switch language (Shift, then Alt)", "SHIFT + Alt_L", switchLayout)
 
 -- windows
-bind(mainMod .. " + Q",             hl.dsp.window.close())
-bind(mainMod .. " + F",             hl.dsp.window.fullscreen())
-bind(mainMod .. " + SHIFT + F",     hl.dsp.window.fullscreen({ mode = "maximized" }))
-bind(mainMod .. " + SHIFT + SPACE", hl.dsp.window.float({ action = "toggle" }))
-bind(mainMod .. " + SHIFT + P",     hl.dsp.window.pseudo())
+shortcut("windows.close", "Close window", mainMod .. " + Q", hl.dsp.window.close())
+shortcut("windows.fullscreen", "Fullscreen", mainMod .. " + F", hl.dsp.window.fullscreen())
+shortcut("windows.maximize", "Maximize", mainMod .. " + SHIFT + F", hl.dsp.window.fullscreen({ mode = "maximized" }))
+shortcut("windows.float", "Float or tile window", mainMod .. " + SHIFT + SPACE", hl.dsp.window.float({ action = "toggle" }))
+shortcut("windows.pseudo", "Pseudo-tile window", mainMod .. " + SHIFT + P", hl.dsp.window.pseudo())
 -- displays: arrange, mirror, resolution, scale, rotation; remembered per set of screens
-bind(mainMod .. " + P",             exec("~/.config/waybar/scripts/popup.sh displays"))
-bind(mainMod .. " + J",             hl.dsp.layout("togglesplit"))
-bind(mainMod .. " + G",             hl.dsp.group.toggle())
-bind(mainMod .. " + SHIFT + G",     hl.dsp.group.next())
+shortcut("system.displays", "Displays", mainMod .. " + P", exec("~/.config/waybar/scripts/popup.sh displays"))
+shortcut("windows.split", "Switch split direction", mainMod .. " + J", hl.dsp.layout("togglesplit"))
+shortcut("windows.group", "Group windows", mainMod .. " + G", hl.dsp.group.toggle())
+shortcut("windows.group_next", "Next window in group", mainMod .. " + SHIFT + G", hl.dsp.group.next())
 -- every desk and its windows, as thumbnails: pick one to go there
-bind(mainMod .. " + Tab",           exec("~/.config/waybar/scripts/popup.sh overview"))
-bind("ALT + Tab",                   hl.dsp.focus({ last = true }))
-bind(mainMod .. " + H",             exec("sh ~/.config/hypr/scripts/toggle-gaps.sh"))
+shortcut("windows.overview", "Overview of all windows", mainMod .. " + Tab", exec("~/.config/waybar/scripts/popup.sh overview"))
+shortcut("windows.last", "Back to the last window", "ALT + Tab", hl.dsp.focus({ last = true }))
+shortcut("windows.gaps", "Turn gaps on or off", mainMod .. " + H", exec("sh ~/.config/hypr/scripts/toggle-gaps.sh"))
 
 -- minimize: SUPER+A hides the window; SUPER+minus brings back the last one onto the
 -- desk you're on (press again for the one before); SUPER+SHIFT+minus lists them all.
@@ -315,9 +329,9 @@ function closeMinimized(addr)
     hl.dispatch(hl.dsp.window.close({ window = w }))
 end
 
-bind(mainMod .. " + A",             function() minimizeActive() end)
-bind(mainMod .. " + minus",         function() restoreMinimized() end)
-bind(mainMod .. " + SHIFT + minus", exec("~/.config/waybar/scripts/popup.sh minimized-picker"))
+shortcut("windows.minimize", "Minimize window", mainMod .. " + A", function() minimizeActive() end)
+shortcut("windows.restore", "Bring back the last minimized window", mainMod .. " + minus", function() restoreMinimized() end)
+shortcut("windows.minimized", "List minimized windows", mainMod .. " + SHIFT + minus", exec("~/.config/waybar/scripts/popup.sh minimized-picker"))
 -- a thumbnail card of each minimized window: blurred over the dimmed backdrop
 -- (BATPICK-7), and the overview's cards the same way. Only these namespaces opt
 -- into blur; nothing else changes look.
@@ -612,8 +626,8 @@ local function sendStep(delta)
     return function() sendToWorkspace((currentWorkspace() - 1 + delta) % DESKS + 1, true) end
 end
 
-bind(mainMod .. " + CTRL + left",  stepWorkspace(-1))
-bind(mainMod .. " + CTRL + right", stepWorkspace(1))
+shortcut("desks.prev", "Previous desk", mainMod .. " + CTRL + left", stepWorkspace(-1))
+shortcut("desks.next", "Next desk", mainMod .. " + CTRL + right", stepWorkspace(1))
 bind(mainMod .. " + mouse_down",   stepWorkspace(-1))
 bind(mainMod .. " + mouse_up",     stepWorkspace(1))
 
@@ -630,7 +644,7 @@ bind(mainMod .. " + mouse:272", hl.dsp.window.drag(),   { mouse = true })
 bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 
 -- resize mode: SUPER+R, arrows, Esc
-bind(mainMod .. " + R", hl.dsp.submap("resize"))
+shortcut("windows.resize", "Resize mode", mainMod .. " + R", hl.dsp.submap("resize"))
 hl.define_submap("resize", function()
     bind("right",  hl.dsp.window.resize({ x = 15,  y = 0,   relative = true }), { repeating = true })
     bind("left",   hl.dsp.window.resize({ x = -15, y = 0,   relative = true }), { repeating = true })
@@ -653,15 +667,15 @@ bind("XF86AudioNext",         exec("playerctl next"), { locked = true })
 bind("XF86AudioPrev",         exec("playerctl previous"), { locked = true })
 
 -- screenshots
-bind("Print",        exec('grim -g "$(slurp)" - | wl-copy'))
-bind("CTRL + Print", exec('grim -g "$(slurp)" - | swappy -f -'))
+shortcut("shots.area", "Screenshot to clipboard", "Print", exec('grim -g "$(slurp)" - | wl-copy'))
+shortcut("shots.edit", "Screenshot to editor", "CTRL + Print", exec('grim -g "$(slurp)" - | swappy -f -'))
 
 -- SUPER+Up/Down: previous/next workspace
-bind(mainMod .. " + up",        stepWorkspace(-1))
-bind(mainMod .. " + down",      stepWorkspace(1))
+shortcut("desks.prev_alt", "Previous desk (second keys)", mainMod .. " + up", stepWorkspace(-1))
+shortcut("desks.next_alt", "Next desk (second keys)", mainMod .. " + down", stepWorkspace(1))
 -- SUPER+Page Up/Down: take the window to the previous/next workspace
-bind(mainMod .. " + Page_Up",   sendStep(-1))
-bind(mainMod .. " + Page_Down", sendStep(1))
+shortcut("desks.send_prev", "Take window to previous desk", mainMod .. " + Page_Up", sendStep(-1))
+shortcut("desks.send_next", "Take window to next desk", mainMod .. " + Page_Down", sendStep(1))
 
 -- SUPER+Right/Left: cycle through the windows of this desk on all monitors,
 -- left to right across the screens (forward / backward)
@@ -688,8 +702,8 @@ local function cycleDeskWindows(step)
         hl.dispatch(hl.dsp.focus({ window = wins[target] }))
     end
 end
-bind(mainMod .. " + right", cycleDeskWindows(1))
-bind(mainMod .. " + left",  cycleDeskWindows(-1))
+shortcut("windows.next", "Focus next window on this desk", mainMod .. " + right", cycleDeskWindows(1))
+shortcut("windows.prev", "Focus previous window on this desk", mainMod .. " + left", cycleDeskWindows(-1))
 
 -- Zen: ALT+Up/Down = previous/next tab (other apps get normal ALT+Up/Down)
 local function zenTab(tabKey, arrow)
@@ -702,14 +716,14 @@ local function zenTab(tabKey, arrow)
         end
     end
 end
-bind("ALT + down", zenTab("Page_Down", "Down"))
-bind("ALT + up",   zenTab("Page_Up",   "Up"))
+shortcut("windows.tab_next", "Next browser tab (Zen)", "ALT + down", zenTab("Page_Down", "Down"))
+shortcut("windows.tab_prev", "Previous browser tab (Zen)", "ALT + up", zenTab("Page_Up",   "Up"))
 
 -- SUPER+N: notification center
-bind(mainMod .. " + N", exec("swaync-client -t -sw"))
+shortcut("apps.notifications", "Notification center", mainMod .. " + N", exec("swaync-client -t -sw"))
 
 -- SUPER+L: lock screen
-bind(mainMod .. " + L", exec("~/.config/hypr/scripts/lock.sh"))
+shortcut("system.lock", "Lock screen", mainMod .. " + L", exec("~/.config/hypr/scripts/lock.sh"))
 
 ---------------- Power: sleep timer + laptop lid ----------------
 hl.on("hyprland.start", function()

@@ -129,7 +129,7 @@ def test_the_keybind_runs_unstick():
     """UNSTICK-1: given hyprland.lua, when its binds are read, then
     SUPER+SHIFT+Escape runs `popup.sh --unstick`, and no other bind uses that key."""
     lua = open(os.path.join(ROOT, "config", "hypr", "hyprland.lua")).read()
-    uses = re.findall(r'bind\(mainMod \.\. " \+ SHIFT \+ Escape",\s*(.*)\)\n', lua)
+    uses = re.findall(r'shortcut\("[a-z_.]+", "[^"]*", mainMod \.\. " \+ SHIFT \+ Escape",\s*(.*)\)\n', lua)
     assert uses == ['exec("~/.config/waybar/scripts/popup.sh --unstick")']
 
 

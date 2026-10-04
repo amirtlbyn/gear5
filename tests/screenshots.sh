@@ -139,6 +139,7 @@ shot_settings power         settings-power
 shot_settings battery       settings-battery
 shot_settings notifications settings-notifications
 shot_settings keyboard      settings-keyboard
+shot_settings shortcuts     settings-shortcuts
 shot_settings look          settings-look
 shot_settings theme-new     theme-editor
 

@@ -134,6 +134,10 @@ presets, "stop at" / "start at" sliders and charge speed — where the firmware'
 
 ![Settings: Keyboard & touchpad](screenshots/settings-keyboard.png)
 
+### Shortcuts
+
+![Settings: Shortcuts](screenshots/settings-shortcuts.png)
+
 ### Look & behavior
 
 ![Settings: Look & behavior](screenshots/settings-look.png)

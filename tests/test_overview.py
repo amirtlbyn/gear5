@@ -55,8 +55,8 @@ def test_the_keybinds():
     runs `popup.sh overview`, SUPER+SHIFT+G is "next window in group", and no
     other bind uses either key."""
     lua = open(os.path.join(ROOT, "config", "hypr", "hyprland.lua")).read()
-    tab = re.findall(r'bind\(mainMod \.\. " \+ Tab",\s*(.*)\)\n', lua)
-    group_next = re.findall(r'bind\(mainMod \.\. " \+ SHIFT \+ G",\s*(.*)\)\n', lua)
+    tab = re.findall(r'shortcut\("[a-z_.]+", "[^"]*", mainMod \.\. " \+ Tab",\s*(.*)\)\n', lua)
+    group_next = re.findall(r'shortcut\("[a-z_.]+", "[^"]*", mainMod \.\. " \+ SHIFT \+ G",\s*(.*)\)\n', lua)
     assert tab == ['exec("~/.config/waybar/scripts/popup.sh overview")']
     assert group_next == ["hl.dsp.group.next()"]
     assert lua.count("hl.dsp.group.next()") == 1
