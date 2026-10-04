@@ -125,6 +125,14 @@ def test_hyprlock_uses_the_theme_picture_and_the_status_line():
     assert y_status < int(re.search(r"position = 0, (-?\d+)", field).group(1))
 
 
+def test_the_lock_picture_is_read_once_and_never_reloaded():
+    """LOCKSTILL-2: given hyprlock.conf, then its image has reload_time = -1, so
+    hyprlock plants no reload timer for it."""
+    with open(HYPRLOCK, encoding="utf-8") as f:
+        image = re.search(r"image \{([^}]*)\}", f.read()).group(1)
+    assert re.search(r"^\s*reload_time = -1$", image, re.M)
+
+
 def test_lock_writes_only_the_lock_screen_file(tmp_path, monkeypatch):
     """LOCK-6: given `theme.py lock`, then only hyprlock-colors.conf is written, for
     the current theme."""
@@ -175,7 +183,7 @@ def lock_sandbox(tmp_path):
     for path, body in fakes.items():
         path.write_text("#!/usr/bin/env bash\n" + body)
         path.chmod(0o755)
-    env = dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR=str(tmp_path),
+    env = dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR=str(tmp_path), XDG_CACHE_HOME=str(home / ".cache"),
                PATH=f"{bindir}:{os.environ['PATH']}", FAKE_LOCK_SECONDS="0.5", FAKE_MONITORS="DP-1 HDMI-A-1")
     return env, pidfile, calls
 
@@ -252,11 +260,33 @@ def refresh_with_log(tmp_path, log, later="", **extra):
 
 def test_the_lock_keeps_hyprlocks_log_of_this_lock(tmp_path):
     """LOCKQ-1: when lock.sh locks, then hyprlock's output is in
-    $XDG_RUNTIME_DIR/hyprlock.log, written again at each lock."""
+    $XDG_RUNTIME_DIR/hyprlock.log, written again at each lock, and the log of the
+    lock before it is kept in hyprlock.log.1."""
     env = lock_sandbox(tmp_path)[0]
     (tmp_path / "hyprlock.log").write_text("the last lock\n")
     subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
     assert (tmp_path / "hyprlock.log").read_text() == "fake hyprlock log\n"
+    assert (tmp_path / "hyprlock.log.1").read_text() == "the last lock\n"
+
+
+def test_the_lock_shows_the_first_frame_of_the_gif(tmp_path):
+    """LOCKSTILL-3: given lock.png left on frame 7 by an animated lock, when lock.sh
+    locks, then lock.png points at frame 000 again."""
+    env = lock_sandbox(tmp_path)[0]
+    pic = tmp_path / "home" / ".cache" / "gear5" / "lock.png"
+    pic.parent.mkdir(parents=True)
+    pic.symlink_to(os.path.join("gif", "current", "lock", "007.png"))
+    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
+    assert os.readlink(pic) == os.path.join("gif", "current", "lock", "000.png")
+
+
+def test_the_lock_makes_no_picture_for_a_theme_that_never_had_a_gif(tmp_path):
+    """LOCKSTILL-4: given no lock.png, when lock.sh locks, then it still locks and
+    no lock.png is made."""
+    env, _, calls = lock_sandbox(tmp_path)
+    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
+    assert calls.read_text() == "started\n"
+    assert not os.path.lexists(tmp_path / "home" / ".cache" / "gear5" / "lock.png")
 
 
 def test_refresh_leaves_a_hyprlock_that_is_unlocking(tmp_path):

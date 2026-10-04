@@ -82,8 +82,8 @@ def hyprlock_conf(t, wall, character=""):
 
 
 def lock_picture():
-    """GIFT-3, GIFT-4: the GIF's flip-book link (gif_player.py --lock moves it) when
-    the current theme has frames, else "" (no picture)."""
+    """GIFT-3, GIFT-4: the link to the GIF's first frame (lock.sh points it there)
+    when the current theme has frames, else "" (no picture)."""
     if os.path.isfile(os.path.join(theme_gif.gif_dir(), "current", "frames.json")):
         return os.path.join(theme_gif.CACHE, "lock.png")
     return ""

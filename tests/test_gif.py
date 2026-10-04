@@ -278,7 +278,7 @@ def source(path):
         return f.read()
 
 
-def run_lock_sh(tmp_path, pidof_rc, player_rc):
+def run_lock_sh(tmp_path, pidof_rc):
     """lock.sh with fake pidof, hyprctl, hyprlock and player; returns what each logged."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(parents=True)
@@ -294,36 +294,30 @@ def run_lock_sh(tmp_path, pidof_rc, player_rc):
         (bin_dir / name).chmod(0o755)
     player = tmp_path / "home" / ".config" / "waybar" / "scripts" / "gif_player.py"
     player.parent.mkdir(parents=True)
-    player.write_text(f'#!/bin/sh\necho "player $*" >> {log}\nexit {player_rc}\n')
+    player.write_text(f'#!/bin/sh\necho "player $*" >> {log}\n')
     player.chmod(0o755)
     script = os.path.join(ROOT, "config", "hypr", "scripts", "lock.sh")
-    env = dict(os.environ, HOME=str(tmp_path / "home"), PATH=f"{bin_dir}:{os.environ['PATH']}")
+    env = dict(os.environ, HOME=str(tmp_path / "home"), XDG_CACHE_HOME=str(tmp_path / "home" / ".cache"), PATH=f"{bin_dir}:{os.environ['PATH']}")
     done = subprocess.run(["bash", script], env=env, timeout=10, check=False)
     return done.returncode, log.read_text().splitlines()
 
 
-def test_every_lock_goes_through_lock_sh_which_starts_one_hyprlock_and_one_player(tmp_path):
-    """GIF-7: given the four places that lock, then each runs lock.sh; when hyprlock
-    already runs, then lock.sh starts nothing; when it does not, then it starts
-    hyprlock and the player with hyprlock's PID, and it still locks when the player
-    fails."""
+def test_every_lock_goes_through_lock_sh_which_starts_one_hyprlock_and_no_player(tmp_path):
+    """GIF-7, LOCKSTILL-1: given the four places that lock, then each runs lock.sh;
+    when hyprlock already runs, then lock.sh starts nothing; when it does not, then
+    it starts hyprlock and never the GIF player, so nothing sends SIGUSR2 to it."""
     assert "scripts/lock.sh" in source("config/hypr/hyprland.lua")
     assert "scripts/lock.sh" in source("config/hypr/scripts/idle.sh")
     assert "scripts/lock.sh" in source("config/waybar/scripts/launcher.py")
     assert "scripts/lock.sh" in source("config/waybar/scripts/power-popup.py")
     assert "hyprlock)" not in source("config/hypr/scripts/idle.sh")
 
-    code, log = run_lock_sh(tmp_path / "locked", pidof_rc=0, player_rc=0)
+    code, log = run_lock_sh(tmp_path / "locked", pidof_rc=0)
     assert (code, log) == (0, [])
 
-    code, log = run_lock_sh(tmp_path / "free", pidof_rc=1, player_rc=0)
-    started = sorted(log[1:])
-    pid = started[0].split()[1]
+    code, log = run_lock_sh(tmp_path / "free", pidof_rc=1)
     assert code == 0 and log[0] == "hyprctl switchxkblayout all 0"
-    assert started == [f"hyprlock {pid}", f"player --lock {pid}"]
-
-    code, log = run_lock_sh(tmp_path / "broken", pidof_rc=1, player_rc=1)
-    assert code == 0 and sorted(log[1:])[0].startswith("hyprlock ")
+    assert [line.split()[0] for line in log[1:]] == ["hyprlock"]
 
 
 def test_the_lock_picture_exists_before_the_first_lock_even_for_a_one_frame_gif(tmp_path):

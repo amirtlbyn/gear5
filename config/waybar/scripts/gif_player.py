@@ -5,7 +5,8 @@ into frame pictures; this service moves the link the bar's pill reads, then sign
 Waybar to read it again. Waybar and hyprlock play no GIF themselves.
 
   gif_player.py --bar       run for the bar (the bar-gif user service)
-  gif_player.py --lock PID  run beside the hyprlock process PID (started by lock.sh)
+  gif_player.py --lock PID  run beside the hyprlock process PID (unused: the lock shows
+                            the first frame, still; spec LOCKSTILL)
 
 The pill reads ~/.cache/gear5/bar.png. A link to a file that does not exist hides
 the pill (Waybar 0.15.0 hides an image it cannot load; empty output would keep the

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The one way to lock the screen (spec GIF-7): SUPER+L, hypridle, the launcher and
 # the power popup all run this. A second lock while locked starts nothing.
-# hyprlock plays no GIF; gif_player.py --lock flips its picture (SIGUSR2 per frame).
-# The player is decoration: it never delays or blocks the lock (INV-4).
+# The lock shows the GIF's first frame, still (spec LOCKSTILL): flipping it with
+# SIGUSR2 per frame made hyprlock 0.9.6 abort while locked (heap corruption).
 #   lock.sh refresh   a screen came while locked: replace the running hyprlock with a
 #                     new one only when it needs it (spec LOCKQ). Nothing happens when
 #                     not locked.
@@ -60,7 +60,10 @@ if [[ "$1" == refresh ]]; then
 fi
 pidof hyprlock >/dev/null && exit 0
 hyprctl switchxkblayout all 0
-hyprlock > "$LOG" 2>&1 &
-pid=$!
-"$HOME/.config/waybar/scripts/gif_player.py" --lock "$pid" >/dev/null 2>&1 &
-wait "$pid"
+# the lock before this one (or the hyprlock a refresh replaced) stays in hyprlock.log.1,
+# so a lock that went wrong can still be read after the next one starts
+[[ "$LOG" != /dev/null && -f "$LOG" ]] && mv -f "$LOG" "$LOG.1"
+# the last animated lock left lock.png on some frame: back to the first (LOCKSTILL-3)
+PIC="${XDG_CACHE_HOME:-$HOME/.cache}/gear5/lock.png"
+[[ -L "$PIC" ]] && ln -sfn gif/current/lock/000.png "$PIC.tmp" 2>/dev/null && mv -fT "$PIC.tmp" "$PIC" 2>/dev/null
+hyprlock > "$LOG" 2>&1
