@@ -305,3 +305,26 @@ def test_a_replaced_locker_shows_black_before_the_lockdead_page():
     misc = lua[lua.index("    misc = {"):]
     misc = misc[: misc.index("    },")]
     assert re.search(r"^\s*lockdead_screen_delay = 3000,", misc, re.M)
+
+
+def test_the_lock_clock_shows_the_zone_the_bar_shows(tmp_path):
+    """Regression: given a pinned zone shown on the bar, then the lock screen's time and
+    date labels run `clock.sh now`, which prints them in that zone, not the system's."""
+    with open(HYPRLOCK, encoding="utf-8") as f:
+        text = f.read()
+    clock = "@HOME@/.config/waybar/scripts/clock.sh now"
+    assert "$TIME" not in text
+    assert f"cmd[update:1000] {clock} +%H:%M" in text
+    assert f'{clock} +"%A, %d %B"' in text
+
+    (tmp_path / ".config" / "waybar").mkdir(parents=True)
+    zones = tmp_path / ".config" / "waybar" / "clock-zones.json"
+    script = os.path.join(ROOT, "config", "waybar", "scripts", "clock.sh")
+    env = {k: v for k, v in os.environ.items() if k != "TZ"} | {"HOME": str(tmp_path)}
+    # "local" is the system zone (/etc/localtime), which `date` uses with no TZ set
+    for active, zone_env in (("Pacific/Kiritimati", {"TZ": "Pacific/Kiritimati"}), ("local", {})):
+        zones.write_text(f'{{"active": "{active}", "pinned": ["local", "{active}"]}}')
+        fmt = "+%Y-%m-%d %H:%M"
+        want = subprocess.run(["date", fmt], env=env | zone_env, capture_output=True, text=True).stdout
+        got = subprocess.run([script, "now", fmt], env=env, capture_output=True, text=True).stdout
+        assert got == want, active

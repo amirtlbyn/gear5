@@ -2,6 +2,7 @@
 # Bar clock with pinned timezones (edit them in the world clock popup: click the clock).
 #   clock.sh            keep printing the clock for waybar (only when it changes)
 #   clock.sh next|prev  show the next / previous pinned zone on the bar (mouse wheel)
+#   clock.sh now +FMT   print `date +FMT` in the zone the bar shows (the lock screen)
 STATE=~/.config/waybar/clock-zones.json
 LOCAL=$(readlink -f /etc/localtime | sed 's|.*/zoneinfo/||')
 
@@ -10,6 +11,15 @@ city() {  # Asia/Tehran → Tehran, America/New_York → New York
   z=${z##*/}; echo "${z//_/ }"
 }
 
+zone_shown() {  # the zone the bar shows: the active pinned one, "local" = the system's
+  local z; z=$(jq -r '.active // "local"' "$STATE" 2>/dev/null || echo local)
+  [[ $z == local || -z $z ]] && z=$LOCAL; echo "$z"
+}
+
+if [[ "$1" == now ]]; then
+  TZ=$(zone_shown) date "$2"
+  exit
+fi
 
 if [[ "$1" == next || "$1" == prev ]]; then
   step=1; [[ "$1" == prev ]] && step=-1
