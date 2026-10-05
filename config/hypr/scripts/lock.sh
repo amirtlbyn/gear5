@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 # The one way to lock the screen (spec GIF-7): SUPER+L, hypridle, the launcher and
-# the power popup all run this. A second lock while locked starts nothing.
-# The lock shows the GIF's first frame, still (spec LOCKSTILL): flipping it with
-# SIGUSR2 per frame made hyprlock 0.9.6 abort while locked (heap corruption).
-#   lock.sh refresh   a screen came while locked: replace the running hyprlock with a
-#                     new one only when it needs it (spec LOCKQ). Nothing happens when
-#                     not locked.
+# the power popup all run this. A second lock while locked starts nothing (QSL-2).
+# The lock is the Quickshell config in ~/.config/quickshell/lock (spec QSL).
+#   lock.sh refresh   the old hyprlock path, kept until the hyprlock removal (QSL-12):
+#                     replace a running hyprlock with a new one only when it needs it
+#                     (spec LOCKQ). Nothing happens when not locked.
 # hyprlock's log of the current lock: the refresh reads it (LOCKQ-1)
 # (no runtime folder: no log, never a file in the shared /tmp)
 LOG="${XDG_RUNTIME_DIR:+$XDG_RUNTIME_DIR/hyprlock.log}"
@@ -58,12 +57,25 @@ if [[ "$1" == refresh ]]; then
   exec 9>&-
   exec "$0"
 fi
-pidof hyprlock >/dev/null && exit 0
+# one locker at a time (QSL-2, INV-2): fd 8 stays open in the locker, so the lock file
+# stays held even if this script is killed (no runtime folder: no lock file, never a
+# file in the shared /tmp)
+if [[ -n "$XDG_RUNTIME_DIR" ]]; then
+  exec 8>"$XDG_RUNTIME_DIR/gear5-lock.lock"
+  flock -n 8 || exit 0
+fi
 hyprctl switchxkblayout all 0
-# the lock before this one (or the hyprlock a refresh replaced) stays in hyprlock.log.1,
-# so a lock that went wrong can still be read after the next one starts
-[[ "$LOG" != /dev/null && -f "$LOG" ]] && mv -f "$LOG" "$LOG.1"
-# the last animated lock left lock.png on some frame: back to the first (LOCKSTILL-3)
-PIC="${XDG_CACHE_HOME:-$HOME/.cache}/gear5/lock.png"
-[[ -L "$PIC" ]] && ln -sfn gif/current/lock/000.png "$PIC.tmp" 2>/dev/null && mv -fT "$PIC.tmp" "$PIC" 2>/dev/null
-hyprlock > "$LOG" 2>&1
+# the lock before this one stays in lock.log.1, so a lock that went wrong can still
+# be read after the next one starts (QSL-11)
+QSLOG="${XDG_RUNTIME_DIR:+$XDG_RUNTIME_DIR/lock.log}"
+QSLOG="${QSLOG:-/dev/null}"
+[[ "$QSLOG" != /dev/null && -f "$QSLOG" ]] && mv -f "$QSLOG" "$QSLOG.1"
+lock() { qs -p "$HOME/.config/quickshell/lock" >> "$QSLOG" 2>&1; }
+# exit 0 is an unlock; anything else (killed, crashed) is run once more, which takes
+# the session lock over (QSL-7). Once, so a lock that dies at start does not loop.
+if lock || lock; then exit 0; fi
+# both starts failed (qs missing, a QML error, a crash): say so, and lock with hyprlock
+# while it is installed, so a lock request never leaves the session open (QSL-13)
+notify-send -u critical "Lock screen failed" "Quickshell did not start; see lock.log" 2>/dev/null
+# exec: hyprlock itself holds fd 8, so a refresh that ends it frees the lock file at once
+command -v hyprlock >/dev/null && exec hyprlock >> "$QSLOG" 2>&1

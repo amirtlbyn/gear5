@@ -2,6 +2,8 @@
 LOCK and GIFT). See config/hypr/hyprlock.conf, config/hypr/scripts/lockinfo.sh and
 theme.py (lock_picture, write_lock)."""
 
+import fcntl
+import json
 import os
 import re
 import shutil
@@ -13,6 +15,7 @@ import theme
 from conftest import ROOT, THEMES
 
 HYPRLOCK = os.path.join(ROOT, "config", "hypr", "hyprlock.conf")
+QUICKSHELL_LOCK = os.path.join(ROOT, "config", "quickshell", "lock")
 LOCKINFO = os.path.join(ROOT, "config", "hypr", "scripts", "lockinfo.sh")
 
 
@@ -170,11 +173,14 @@ def lock_sandbox(tmp_path):
     (home / ".config" / "waybar" / "scripts").mkdir(parents=True)
     bindir.mkdir()
     pidfile, calls = tmp_path / "hyprlock.pid", tmp_path / "calls"
+    fake_locker = (f'echo started >> {calls}\necho $$ > {pidfile}\necho "fake hyprlock log"\n'
+                   f"trap 'echo unlocked >> {calls}; exit 0' USR1\n"
+                   f"trap 'echo term >> {calls}; exit 0' TERM\n"
+                   'sleep "$FAKE_LOCK_SECONDS" & wait\n')
     fakes = {
-        bindir / "hyprlock": (f'echo started >> {calls}\necho $$ > {pidfile}\necho "fake hyprlock log"\n'
-                               f"trap 'echo unlocked >> {calls}; exit 0' USR1\n"
-                               f"trap 'echo term >> {calls}; exit 0' TERM\n"
-                               'sleep "$FAKE_LOCK_SECONDS" & wait\n'),
+        bindir / "hyprlock": fake_locker,
+        # lock.sh refresh ends hyprlock, then runs lock.sh, which starts qs
+        bindir / "qs": fake_locker,
         bindir / "pidof": f'p=$(cat {pidfile} 2>/dev/null) && kill -0 "$p" 2>/dev/null && echo "$p"\n',
         bindir / "hyprctl": 'for m in $FAKE_MONITORS; do echo "Monitor $m (ID 0):"; done\n',
         bindir / "ps": 'echo "${FAKE_ETIMES:-10}"\n',
@@ -258,37 +264,6 @@ def refresh_with_log(tmp_path, log, later="", **extra):
     return calls_now
 
 
-def test_the_lock_keeps_hyprlocks_log_of_this_lock(tmp_path):
-    """LOCKQ-1: when lock.sh locks, then hyprlock's output is in
-    $XDG_RUNTIME_DIR/hyprlock.log, written again at each lock, and the log of the
-    lock before it is kept in hyprlock.log.1."""
-    env = lock_sandbox(tmp_path)[0]
-    (tmp_path / "hyprlock.log").write_text("the last lock\n")
-    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
-    assert (tmp_path / "hyprlock.log").read_text() == "fake hyprlock log\n"
-    assert (tmp_path / "hyprlock.log.1").read_text() == "the last lock\n"
-
-
-def test_the_lock_shows_the_first_frame_of_the_gif(tmp_path):
-    """LOCKSTILL-3: given lock.png left on frame 7 by an animated lock, when lock.sh
-    locks, then lock.png points at frame 000 again."""
-    env = lock_sandbox(tmp_path)[0]
-    pic = tmp_path / "home" / ".cache" / "gear5" / "lock.png"
-    pic.parent.mkdir(parents=True)
-    pic.symlink_to(os.path.join("gif", "current", "lock", "007.png"))
-    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
-    assert os.readlink(pic) == os.path.join("gif", "current", "lock", "000.png")
-
-
-def test_the_lock_makes_no_picture_for_a_theme_that_never_had_a_gif(tmp_path):
-    """LOCKSTILL-4: given no lock.png, when lock.sh locks, then it still locks and
-    no lock.png is made."""
-    env, _, calls = lock_sandbox(tmp_path)
-    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
-    assert calls.read_text() == "started\n"
-    assert not os.path.lexists(tmp_path / "home" / ".cache" / "gear5" / "lock.png")
-
-
 def test_refresh_leaves_a_hyprlock_that_is_unlocking(tmp_path):
     """LOCKQ-2: given a locked hyprlock that has begun to unlock (a screen just came
     back with no surface yet), when the refresh runs, then it ends nothing and starts
@@ -358,3 +333,132 @@ def test_the_lock_clock_shows_the_zone_the_bar_shows(tmp_path):
         want = subprocess.run(["date", fmt], env=env | zone_env, capture_output=True, text=True).stdout
         got = subprocess.run([script, "now", fmt], env=env, capture_output=True, text=True).stdout
         assert got == want, active
+
+
+def qs_sandbox(tmp_path, qs_exits=""):
+    """A PATH with a fake qs (logs its arguments, prints "fake qs log", exits with the
+    next code of qs_exits, "0 1" for example, and 0 when they run out), a fake
+    hyprctl, hyprlock and notify-send (all log), and a HOME and runtime folder of its
+    own: lock.sh runs for real but never meets the real lock screen. The calls file."""
+    bindir, home = tmp_path / "bin", tmp_path / "home"
+    bindir.mkdir(parents=True)
+    home.mkdir()
+    calls = tmp_path / "calls"
+    (tmp_path / "qs_exits").write_text("".join(code + "\n" for code in qs_exits.split()))
+    fakes = {
+        "qs": (f'echo "qs $*" >> {calls}; echo "fake qs log"\n'
+               f'code=$(head -1 {tmp_path}/qs_exits); sed -i 1d {tmp_path}/qs_exits; exit "${{code:-0}}"'),
+        "notify-send": f'echo "notify-send $*" >> {calls}',
+        "hyprctl": f'echo "hyprctl $*" >> {calls}',
+        "hyprlock": f'echo "hyprlock" >> {calls}',
+    }
+    for name, body in fakes.items():
+        (bindir / name).write_text("#!/bin/sh\n" + body + "\n")
+        (bindir / name).chmod(0o755)
+    env = dict(os.environ, HOME=str(home), XDG_RUNTIME_DIR=str(tmp_path), PATH=f"{bindir}:{os.environ['PATH']}")
+    return env, calls
+
+
+def test_lock_sh_switches_the_layout_and_starts_one_quickshell_lock(tmp_path):
+    """QSL-1: given no lock running, when lock.sh runs, then it switches the keyboard to
+    the first layout, then starts exactly one `qs -p ~/.config/quickshell/lock`, and
+    never hyprlock."""
+    env, calls = qs_sandbox(tmp_path)
+    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
+    assert calls.read_text().splitlines() == [
+        "hyprctl switchxkblayout all 0",
+        f"qs -p {tmp_path}/home/.config/quickshell/lock",
+    ]
+
+
+def test_lock_sh_starts_nothing_while_a_lock_runs(tmp_path):
+    """QSL-2: given the lock file held by a running locker, when lock.sh runs again,
+    then it exits 0 and starts nothing."""
+    env, calls = qs_sandbox(tmp_path)
+    with open(tmp_path / "gear5-lock.lock", "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
+    assert not calls.exists()
+
+
+def test_lock_sh_keeps_the_log_of_this_lock_and_the_one_before(tmp_path):
+    """QSL-11: given a lock.log from an earlier lock, when lock.sh locks, then the
+    locker's output is in $XDG_RUNTIME_DIR/lock.log and the earlier log is lock.log.1."""
+    env, _ = qs_sandbox(tmp_path)
+    (tmp_path / "lock.log").write_text("the last lock\n")
+    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
+    assert (tmp_path / "lock.log").read_text() == "fake qs log\n"
+    assert (tmp_path / "lock.log.1").read_text() == "the last lock\n"
+
+
+def lock_theme(tmp_path, theme_id, with_gif):
+    """theme.py's lock theme file for this theme, in a config folder of its own."""
+    shutil.copytree(THEMES, tmp_path / "hypr" / "themes")
+    (tmp_path / "hypr" / "themes" / "current").write_text(theme_id + "\n")
+    if with_gif:
+        (tmp_path / "hypr" / "themes" / f"{theme_id}.gif").write_bytes(b"GIF89a")
+    theme.write_lock(str(tmp_path))
+    return json.loads((tmp_path / "quickshell" / "lock" / "theme.json").read_text())
+
+
+def test_theme_py_writes_the_lock_theme_file(tmp_path, monkeypatch):
+    """QSL-3: given a theme with a GIF and one without, when theme.py lock runs, then
+    theme.json has the six colors, the wallpaper, the font and the GIF path (empty for
+    the theme with none)."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    colors = palette.theme("nami", THEMES)["colors"]
+    with_gif = lock_theme(tmp_path / "a", "nami", with_gif=True)
+    assert with_gif["fg"] == colors["fg"]
+    assert with_gif["edge_deep"] == colors["edge_deep"]
+    assert with_gif["font"] == theme.fonts.families()[0]
+    assert with_gif["gif"] == str(tmp_path / "a" / "hypr" / "themes" / "nami.gif")
+    assert sorted(with_gif) == sorted(["fg", "bg0", "green", "yellow", "red", "edge_deep", "wallpaper", "font", "gif"])
+    assert lock_theme(tmp_path / "b", "nami", with_gif=False)["gif"] == ""
+
+
+def test_the_lock_authenticates_with_its_own_pam_service():
+    """QSL-6: given the repository, then the PAM service file is exactly one auth line,
+    `auth include login`, install.sh installs it to /etc/pam.d/gear5-lock, and shell.qml
+    names "gear5-lock" with no configDirectory and never names hyprlock's PAM file."""
+    with open(os.path.join(ROOT, "config", "pam.d", "gear5-lock"), encoding="utf-8") as f:
+        rules = [line for line in f.read().splitlines() if not line.startswith("#")]
+    assert rules == ["auth include login"]
+    with open(os.path.join(ROOT, "install.sh"), encoding="utf-8") as f:
+        assert 'sudo install -m 644 "$HERE/config/pam.d/gear5-lock" /etc/pam.d/gear5-lock' in f.read()
+    with open(os.path.join(QUICKSHELL_LOCK, "shell.qml"), encoding="utf-8") as f:
+        qml = f.read()
+    assert 'config: "gear5-lock"' in qml
+    assert "configDirectory" not in qml
+    assert "pam.d/hyprlock" not in qml
+
+
+def test_a_failed_quickshell_lock_notifies_and_falls_back_to_hyprlock(tmp_path):
+    """QSL-13: given a qs that fails on both starts, when lock.sh runs, then it sends a
+    critical notification and starts hyprlock once."""
+    env, calls = qs_sandbox(tmp_path, qs_exits="1 1")
+    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
+    lines = calls.read_text().splitlines()
+    assert [line.split()[0] for line in lines] == ["hyprctl", "qs", "qs", "notify-send", "hyprlock"]
+    assert lines[3].startswith("notify-send -u critical ")
+
+
+def test_a_crashed_quickshell_lock_is_restarted_once_and_an_unlock_is_not(tmp_path):
+    """Restart rule: given a qs that exits 1 and then 0, then lock.sh starts it
+    twice and no notification or hyprlock follows; given a qs that exits 0, then once."""
+    env, calls = qs_sandbox(tmp_path / "crash", qs_exits="1 0")
+    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
+    assert [line.split()[0] for line in calls.read_text().splitlines()] == ["hyprctl", "qs", "qs"]
+    env, calls = qs_sandbox(tmp_path / "unlock", qs_exits="0")
+    subprocess.run([LOCK_SH], env=env, check=True, timeout=10)
+    assert [line.split()[0] for line in calls.read_text().splitlines()] == ["hyprctl", "qs"]
+
+
+def test_the_quickshell_lock_shows_the_bars_clock_and_the_status_line():
+    """QSL-10: given shell.qml, then it runs `clock.sh now` for the time every 1 s and
+    the date every 60 s, and lockinfo.sh every 5 s."""
+    with open(os.path.join(QUICKSHELL_LOCK, "shell.qml"), encoding="utf-8") as f:
+        qml = f.read()
+    clock = 'root.home + "/.config/waybar/scripts/clock.sh", "now"'
+    assert f'[{clock}, "+%H:%M"]\n        every: 1000' in qml
+    assert f'[{clock}, "+%A, %d %B"]\n        every: 60000' in qml
+    assert '[root.home + "/.config/hypr/scripts/lockinfo.sh"]\n        every: 5000' in qml

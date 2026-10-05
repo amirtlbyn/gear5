@@ -1,0 +1,2 @@
+# the lock screen's PAM service (spec QSL-6): the same stack as logging in
+auth include login
