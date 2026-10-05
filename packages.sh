@@ -1,7 +1,10 @@
 # The packages Gear5 needs, per distribution family: install.sh installs them,
 # doctor.sh checks that they are installed. Read with `. packages.sh`.
+# quickshell runs the lock screen (spec QSL). Fedora: COPR errornointernet/quickshell
+# (install.sh enables it). Arch: extra. Ubuntu: if 26.04 lacks the package, build it from
+# https://quickshell.org and keep `qs` on PATH.
 FEDORA_PKGS=(
-  hyprland hyprlock hypridle xdg-desktop-portal-hyprland
+  hyprland hyprlock quickshell hypridle xdg-desktop-portal-hyprland
   waybar swaybg SwayNotificationCenter kitty nemo
   python3-gobject gtk4 gtk4-layer-shell
   qalculate cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
@@ -10,7 +13,7 @@ FEDORA_PKGS=(
   git curl tar
 )
 ARCH_PKGS=(
-  hyprland hyprlock hypridle xdg-desktop-portal-hyprland
+  hyprland hyprlock quickshell hypridle xdg-desktop-portal-hyprland
   waybar swaybg swaync kitty nemo
   python-gobject gtk4 gtk4-layer-shell
   libqalculate cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
@@ -19,7 +22,7 @@ ARCH_PKGS=(
   git curl unzip
 )
 UBUNTU_PKGS=(
-  hyprland hyprlock hypridle xdg-desktop-portal-hyprland
+  hyprland hyprlock quickshell hypridle xdg-desktop-portal-hyprland
   waybar swaybg sway-notification-center kitty nemo
   python3-gi python3-gi-cairo gir1.2-pango-1.0 gir1.2-gtk-4.0 gir1.2-gtk4layershell-1.0 libgtk4-layer-shell0
   qalc cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol

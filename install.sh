@@ -66,6 +66,8 @@ install_packages() {
       say "Hyprland 0.56+ comes from the lionheartp/Hyprland COPR"
       run sudo dnf install -y dnf-plugins-core
       run sudo dnf copr enable -y lionheartp/Hyprland
+      say "quickshell (the lock screen) comes from the errornointernet/quickshell COPR"
+      run sudo dnf copr enable -y errornointernet/quickshell
       run sudo dnf install -y "${FEDORA_PKGS[@]}" ;;
     arch)
       run sudo pacman -Syu --needed --noconfirm "${ARCH_PKGS[@]}" ;;
@@ -117,16 +119,18 @@ install_configs() {
   local stamp backup
   stamp="$(date +%Y%m%d-%H%M%S)"
   backup="$CONFIG/gear5-backup-$stamp"
-  for d in hypr waybar swaync; do
+  for d in hypr waybar swaync quickshell/lock; do
     if [[ -e "$CONFIG/$d" ]]; then
       say "Backing up ~/.config/$d -> ${backup/#$HOME/\~}/$d"
-      run mkdir -p "$backup"
+      run mkdir -p "$backup/$(dirname "$d")"
       run mv "$CONFIG/$d" "$backup/$d"
     fi
   done
   say "Copying the configs to ~/.config"
   run mkdir -p "$CONFIG"
-  run cp -r "$HERE/config/hypr" "$HERE/config/waybar" "$HERE/config/swaync" "$CONFIG/"
+  run cp -r "$HERE/config/hypr" "$HERE/config/waybar" "$HERE/config/swaync" "$HERE/config/quickshell" "$CONFIG/"
+  # the lock screen's PAM service (spec QSL-6); /etc/pam.d needs root
+  run sudo install -m 644 "$HERE/config/pam.d/gear5-lock" /etc/pam.d/gear5-lock
   run mkdir -p "$CONFIG/systemd/user"
   run cp "$HERE/config/systemd/user/hyprland-session.target" "$CONFIG/systemd/user/"
   # the document portal starts again when its folder is unmounted (see restart.conf)

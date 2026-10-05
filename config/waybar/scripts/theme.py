@@ -81,6 +81,20 @@ def hyprlock_conf(t, wall, character=""):
     return "\n".join(lines) + "\n"
 
 
+def lock_theme_json(t, wall, gif):
+    """quickshell/lock/theme.json: what the Quickshell lock reads (QSL-3). gif is
+    the theme's own GIF path, "" when it has none: the lock then shows no picture."""
+    c = t["colors"]
+    data = {k: c[k] for k in ("fg", "bg0", "green", "yellow", "red", "edge_deep")}
+    data.update(wallpaper=wall or "", font=fonts.families()[0], gif=gif or "")
+    return json.dumps(data, indent=2) + "\n"
+
+
+def write_lock_theme(t, wall, config):
+    write(os.path.join(config, "quickshell", "lock", "theme.json"),
+          lock_theme_json(t, wall, theme_gif.gif(t["id"], os.path.join(config, "hypr", "themes"))))
+
+
 def lock_picture():
     """GIFT-3, GIFT-4: the link to the GIF's first frame (lock.sh points it there)
     when the current theme has frames, else "" (no picture)."""
@@ -96,6 +110,7 @@ def write_lock(config=CONFIG):
     t = palette.theme(palette.current(themes), themes)
     wall = palette.wallpaper(os.path.join(config, "hypr", "wallpapers"), themes)
     write(os.path.join(config, "hypr", "hyprlock-colors.conf"), hyprlock_conf(t, wall, lock_picture()))
+    write_lock_theme(t, wall, config)
 
 
 # kitty's color names -> the theme's color roles (a full 16, like the Everforest
@@ -200,6 +215,7 @@ def write_all(theme_id, config=CONFIG):
     touch(os.path.join(config, "waybar", "bar", "style.css"))  # Waybar reloads its CSS, no restart
     write(os.path.join(themes, "current.lua"), hypr_lua(t, wall))
     write(os.path.join(config, "hypr", "hyprlock-colors.conf"), hyprlock_conf(t, wall, lock_picture()))
+    write_lock_theme(t, wall, config)
     kitty = os.path.join(config, "kitty")
     if os.path.isdir(kitty):  # not installed: nothing to recolor
         write_in_place(os.path.join(kitty, "colors", "current.conf"), kitty_conf(t))

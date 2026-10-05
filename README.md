@@ -26,7 +26,7 @@ your distro automatically.
 | `SUPER+SHIFT+-` | **Minimized windows** picker: a thumbnail card for each, newest first — type to filter, arrows + Enter or its number to bring one back, Delete / middle-click / its × to close it |
 | `SUPER+Tab` | **Overview**: every desk with windows, one row each, a thumbnail card per window (then the minimized ones). Click or Enter goes to that window on its desk; `1`…`0` go to a desk; type to filter. Window groups: `SUPER+G` makes one, `SUPER+SHIFT+G` goes to the next window in it |
 | `SUPER+N` | Notifications (swaync) |
-| `SUPER+L` | Lock (hyprlock): the theme's colors, the blurred wallpaper, battery and what is playing, and the time in the zone the bar clock shows |
+| `SUPER+L` | Lock (Quickshell, on every screen; hyprlock if Quickshell cannot start): the theme's colors, the theme's GIF (animated), the blurred wallpaper, battery and what is playing, and the time in the zone the bar clock shows |
 | `SUPER+B` | Power menu |
 | `SUPER+SHIFT+Esc` | **Unstick**: an open popup that hangs and keeps the keyboard is closed and started again |
 | `SUPER+1…0` | Desk 1–10 — **every monitor switches together** |
@@ -55,6 +55,8 @@ Every popup opens instantly (they stay running hidden), closes with `Esc` or a c
 | Ubuntu / Kubuntu | 26.04 LTS+ | [cppiber/hyprland](https://launchpad.net/~cppiber/+archive/ubuntu/hyprland) PPA |
 
 Ubuntu 24.04 isn't supported: it has no `gtk4-layer-shell`, which every popup needs.
+If your Ubuntu has no `quickshell` package (the lock screen), build it from
+[quickshell.org](https://quickshell.org) and keep `qs` on your `PATH`.
 On other distros, install the packages yourself (see `packages.sh` for the list) and
 run `./install.sh --configs-only`.
 
@@ -68,14 +70,17 @@ cd gear5
 
 The installer:
 1. installs the packages (asks for `sudo`), plus the JetBrainsMono Nerd Font if missing;
-2. moves your current `~/.config/hypr`, `waybar` and `swaync` into
+   on Fedora it also enables the `errornointernet/quickshell` COPR for the lock screen;
+2. moves your current `~/.config/hypr`, `waybar`, `swaync` and `quickshell/lock` into
    `~/.config/gear5-backup-<date>/`;
-3. copies the configs and downloads the wallpapers from the original rice.
+3. copies the configs, installs the lock screen's PAM service as
+   `/etc/pam.d/gear5-lock` (the same password check as logging in; asks for `sudo`),
+   and downloads the wallpapers from the original rice.
 
 Then log out and choose **Hyprland** on the login screen (GDM, SDDM, …).
 
-To undo: delete `~/.config/{hypr,waybar,swaync}` and move the folders back out of the
-backup.
+To undo: delete `~/.config/{hypr,waybar,swaync,quickshell/lock}` and
+`/etc/pam.d/gear5-lock`, and move the folders back out of the backup.
 
 If something stops working (a popup does not open, charge limits do nothing, a
 Flatpak app will not start), run `./doctor.sh`. It checks the packages, the battery
@@ -96,8 +101,8 @@ command that fixes each problem. It changes nothing by itself.
   has no pill on the bar and no picture on the lock screen. Waybar plays no GIF,
   so the bar shows its frames one after the other (a flip-book). *Bar GIF plays*
   chooses when the bar moves: always, only on AC power (the default), or for 5 s after
-  a theme switch; otherwise it rests on the first frame. The lock screen shows the
-  GIF's first frame, still. *GIF on theme switch* pops the GIF up
+  a theme switch; otherwise it rests on the first frame. The lock screen plays the
+  GIF while it is locked. *GIF on theme switch* pops the GIF up
   under the bar for about two seconds when you switch theme. No picture ships with the project.
 - **Fonts**: `SUPER+I` → Fonts. The English (mono) and the Persian font of the bar,
   popups, notifications, lock screen and kitty, chosen from the installed families
@@ -182,6 +187,7 @@ another character, copy one of the files under a new name.
 - The character themes are fan color schemes inspired by *One Piece* by Eiichiro Oda
   (Shueisha / Toei Animation). No artwork is included; see *Characters & wallpapers*.
 - [Hyprland](https://hyprland.org), [Waybar](https://github.com/Alexays/Waybar),
+  [Quickshell](https://quickshell.org),
   [SwayNotificationCenter](https://github.com/ErikReider/SwayNotificationCenter),
   [gtk4-layer-shell](https://github.com/wmww/gtk4-layer-shell),
   [Qalculate!](https://qalculate.github.io), [cliphist](https://github.com/sentriz/cliphist).
