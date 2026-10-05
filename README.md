@@ -20,13 +20,13 @@ your distro automatically.
 | `SUPER+V` | Clipboard history: filters, **pin** text and pictures (`Ctrl+P`) |
 | `SUPER+.` | Emoji picker (Unicode 18), pastes into the app you were using |
 | `SUPER+P` | **Displays**: Laptop only · Extend · Duplicate · External only, drag to arrange, resolution, scale, rotation, mirror. Keep-or-revert in 15 s; layouts are **remembered per set of screens** and come back when you plug them in |
-| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, an optional GIF for each theme, fonts (English + Persian), displays (per-screen brightness, night light), Wi-Fi, Bluetooth, sound, power & sleep (power mode, the sleep timer), **Battery** (level, health, charge limits: presets, stop/start, speed), notifications, **Shortcuts** (change or turn off any desktop shortcut: click its keys and press the new ones), keyboard layouts, touchpad, gaps, animations, the bar background strip, all in one window (no other app opens) |
+| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, an optional GIF for each theme, fonts (English + Persian), displays (per-screen brightness, night light), Wi-Fi, Bluetooth, sound, power & sleep (power mode, the sleep timer), **Battery** (level, health, charge limits: presets, stop/start, speed, dim when idle on battery), notifications, **Shortcuts** (change or turn off any desktop shortcut: click its keys and press the new ones), keyboard layouts, touchpad, gaps, animations, the bar background strip, all in one window (no other app opens) |
 | `SUPER+A` | **Minimize** the window; the bar shows how many are minimized (click it to open the picker below) |
 | `SUPER+-` | Bring back the last minimized window onto the desk you're on (again for the one before) |
 | `SUPER+SHIFT+-` | **Minimized windows** picker: a thumbnail card for each, newest first — type to filter, arrows + Enter or its number to bring one back, Delete / middle-click / its × to close it |
 | `SUPER+Tab` | **Overview**: every desk with windows, one row each, a thumbnail card per window (then the minimized ones). Click or Enter goes to that window on its desk; `1`…`0` go to a desk; type to filter. Window groups: `SUPER+G` makes one, `SUPER+SHIFT+G` goes to the next window in it |
 | `SUPER+N` | Notifications (swaync) |
-| `SUPER+L` | Lock (hyprlock) |
+| `SUPER+L` | Lock (hyprlock): the theme's colors, the blurred wallpaper, battery and what is playing, and the time in the zone the bar clock shows |
 | `SUPER+B` | Power menu |
 | `SUPER+SHIFT+Esc` | **Unstick**: an open popup that hangs and keeps the keyboard is closed and started again |
 | `SUPER+1…0` | Desk 1–10 — **every monitor switches together** |
@@ -93,11 +93,11 @@ command that fixes each problem. It changes nothing by itself.
   `~/.config/hypr/themes/<theme id>.gif`, never in git). `SUPER+I` → Theme: *GIF…* on a
   card picks it and *Remove* deletes it. The GIF plays on the bar, left of the desks
   (click it to open the Theme page), and on the lock screen above the clock; a theme with no GIF
-  has no pill on the bar and no picture on the lock screen. Neither
-  Waybar nor hyprlock plays a GIF, so both show its frames one after the other
-  (a flip-book). *Bar GIF plays* chooses when the bar moves: always, only on AC power
-  (the default), or for 5 s after a theme switch; otherwise it rests on the first
-  frame. The lock screen plays while it is locked. *GIF on theme switch* pops the GIF up
+  has no pill on the bar and no picture on the lock screen. Waybar plays no GIF,
+  so the bar shows its frames one after the other (a flip-book). *Bar GIF plays*
+  chooses when the bar moves: always, only on AC power (the default), or for 5 s after
+  a theme switch; otherwise it rests on the first frame. The lock screen shows the
+  GIF's first frame, still. *GIF on theme switch* pops the GIF up
   under the bar for about two seconds when you switch theme. No picture ships with the project.
 - **Fonts**: `SUPER+I` → Fonts. The English (mono) and the Persian font of the bar,
   popups, notifications, lock screen and kitty, chosen from the installed families
@@ -107,7 +107,9 @@ command that fixes each problem. It changes nothing by itself.
   timer, and lock / sleep / reboot / power off), **Battery** (level, health,
   cycles, and charge limits, where the firmware's `charge_types` can be written —
   a `battery-limits` user service enforces
-  them at login, every 30 s, and within 2 s of a change), notifications, keyboard &
+  them at login, every 30 s, and within 2 s of a change; and *Dim when idle*, which
+  dims the screen to 30 % after 1–10 idle minutes on battery and brings the brightness
+  back when you move), notifications, keyboard &
   touchpad, and look & behavior (gaps, animations, the bar strip). Displays, Wi-Fi, Sound and the
   power page's panels are the same as the bar popups'. Bluetooth is the Bluetooth
   part of Quick settings. `settings.py <page>` opens a page directly (e.g.
