@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Summer Hyprland installer — Fedora 44+, Arch (and Arch-based), Ubuntu / Kubuntu 26.04+.
+# Gear5 installer — Fedora 44+, Arch (and Arch-based), Ubuntu / Kubuntu 26.04+.
 #
 #   ./install.sh                 install packages + fonts + configs (asks before changing anything)
 #   ./install.sh --yes           don't ask
@@ -55,36 +55,10 @@ fi
 if [[ "$FAMILY" == ubuntu ]] && ! version_ge "${VERSION_ID:-0}" 26.04; then
   die "$NAME_SHOWN is too old: it lacks gtk4-layer-shell and a recent Waybar. Ubuntu/Kubuntu 26.04 LTS or newer is needed."
 fi
-say "Installing Summer Hyprland on $NAME_SHOWN ($FAMILY family)"
+say "Installing Gear5 on $NAME_SHOWN ($FAMILY family)"
 
 # ---------------------------------------------------------------- packages
-FEDORA_PKGS=(
-  hyprland hyprlock hypridle xdg-desktop-portal-hyprland
-  waybar swaybg SwayNotificationCenter kitty nemo
-  python3-gobject gtk4 gtk4-layer-shell
-  qalculate cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
-  pulseaudio-utils bluez NetworkManager upower ddcutil libnotify jq socat plocate localsearch
-  mate-polkit xdg-utils google-noto-color-emoji-fonts vazirmatn-fonts hyprpicker
-  git curl tar
-)
-ARCH_PKGS=(
-  hyprland hyprlock hypridle xdg-desktop-portal-hyprland
-  waybar swaybg swaync kitty nemo
-  python-gobject gtk4 gtk4-layer-shell
-  libqalculate cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
-  libpulse bluez bluez-utils networkmanager upower power-profiles-daemon ddcutil libnotify jq socat
-  plocate localsearch mate-polkit xdg-utils ttf-jetbrains-mono-nerd noto-fonts-emoji hyprpicker
-  git curl unzip
-)
-UBUNTU_PKGS=(
-  hyprland hyprlock hypridle xdg-desktop-portal-hyprland
-  waybar swaybg sway-notification-center kitty nemo
-  python3-gi gir1.2-gtk-4.0 gir1.2-gtk4layershell-1.0 libgtk4-layer-shell0
-  qalc cliphist wl-clipboard grim slurp swappy playerctl brightnessctl pavucontrol
-  pulseaudio-utils bluez network-manager upower power-profiles-daemon ddcutil libnotify-bin jq socat
-  plocate localsearch mate-polkit xdg-utils fonts-noto-color-emoji fonts-vazirmatn hyprpicker
-  git curl tar
-)
+. "$HERE/packages.sh"   # FEDORA_PKGS, ARCH_PKGS, UBUNTU_PKGS
 
 install_packages() {
   case "$FAMILY" in
@@ -142,7 +116,7 @@ install_fonts() {
 install_configs() {
   local stamp backup
   stamp="$(date +%Y%m%d-%H%M%S)"
-  backup="$CONFIG/summer-hyprland-backup-$stamp"
+  backup="$CONFIG/gear5-backup-$stamp"
   for d in hypr waybar swaync; do
     if [[ -e "$CONFIG/$d" ]]; then
       say "Backing up ~/.config/$d -> ${backup/#$HOME/\~}/$d"
@@ -155,6 +129,8 @@ install_configs() {
   run cp -r "$HERE/config/hypr" "$HERE/config/waybar" "$HERE/config/swaync" "$CONFIG/"
   run mkdir -p "$CONFIG/systemd/user"
   run cp "$HERE/config/systemd/user/hyprland-session.target" "$CONFIG/systemd/user/"
+  # the document portal starts again when its folder is unmounted (see restart.conf)
+  run cp -r "$HERE/config/systemd/user/xdg-document-portal.service.d" "$CONFIG/systemd/user/"
   if ((!DRY)); then
     sed -i "s|@HOME@|$HOME|g" "$CONFIG/hypr/hyprlock.conf"
     chmod +x "$CONFIG"/hypr/scripts/*.sh "$CONFIG"/waybar/scripts/*.sh "$CONFIG"/waybar/scripts/*.py
@@ -181,6 +157,33 @@ install_configs() {
   fi
 }
 
+# ---------------------------------------------------------------- battery limits
+install_battery_limits() {
+  run cp "$HERE/config/systemd/user/battery-limits.service" "$CONFIG/systemd/user/"
+  # a copy next to the scripts: the Battery page names this exact path when the
+  # udev rule below has not run yet (e.g. an older install, or the rule was removed)
+  run cp "$HERE/config/udev/90-summer-battery.rules" "$CONFIG/waybar/scripts/90-summer-battery.rules"
+  say "Battery charge limits need one udev rule, so Settings can set them without a password (sudo, once)"
+  run sudo install -m644 "$HERE/config/udev/90-summer-battery.rules" /etc/udev/rules.d/
+  run sudo udevadm control --reload
+  run sudo udevadm trigger --subsystem-match=power_supply --action=change
+  run systemctl --user daemon-reload
+  run systemctl --user enable --now battery-limits.service
+}
+
+# ---------------------------------------------------------------- night light
+install_night_light() {  # Settings > Displays > Night light; Off until a mode is picked
+  run cp "$HERE/config/systemd/user/night-light.service" "$CONFIG/systemd/user/"
+  run systemctl --user daemon-reload
+  run systemctl --user enable --now night-light.service
+}
+
+install_bar_gif() {  # the theme's GIF on the bar; the pill stays hidden for a theme without one
+  run cp "$HERE/config/systemd/user/bar-gif.service" "$CONFIG/systemd/user/"
+  run systemctl --user daemon-reload
+  run systemctl --user enable --now bar-gif.service
+}
+
 # ---------------------------------------------------------------- services
 enable_services() {
   # file search: the index for file names, and GNOME's indexer for names + contents
@@ -197,11 +200,15 @@ echo "This will:"
 ((PACKAGES)) && echo "  • download fonts to ${FONTS/#$HOME/\~} if missing"
 echo "  • move your ~/.config/hypr, waybar and swaync to a backup folder, and copy these in"
 echo "  • download the wallpapers from the original rice"
+echo "  • install a udev rule with sudo, once, and start the battery-limits service"
 echo
 ask "Continue?" || { echo "Nothing changed."; exit 0; }
 
 if ((PACKAGES)); then install_packages; install_fonts; fi
 install_configs
+install_battery_limits
+install_night_light
+install_bar_gif
 ((PACKAGES)) && enable_services
 
 echo

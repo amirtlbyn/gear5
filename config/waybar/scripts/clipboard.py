@@ -21,13 +21,14 @@ import re
 import subprocess
 import sys
 import threading
+import weakref
 
 LAYER_LIBS = [
     "/usr/lib64/libgtk4-layer-shell.so.0",
     "/usr/lib/libgtk4-layer-shell.so.0",
     "/usr/lib/x86_64-linux-gnu/libgtk4-layer-shell.so.0",
 ]
-if not os.environ.get("CLIPBOARD_PRELOADED"):
+if __name__ == "__main__" and not os.environ.get("CLIPBOARD_PRELOADED"):
     lib = next((p for p in LAYER_LIBS if os.path.exists(p)), None)
     os.environ["CLIPBOARD_PRELOADED"] = "1"
     if lib:
@@ -39,7 +40,8 @@ import gi  # noqa: E402
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
-from gi.repository import Gdk, GLib, Gtk, Pango  # noqa: E402
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango  # noqa: E402
 
 try:
     gi.require_version("Gtk4LayerShell", "1.0")
@@ -47,12 +49,16 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
 
 THEME = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else palette.current()
 WIDTH = 540
+# a thumbnail is 90 px tall: decode pictures to at most twice that (a 2x screen),
+# not at their full size
+THUMB_MAX_H, THUMB_MAX_W = 180, 2 * WIDTH
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "clipboard-popup")
 PINS = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "clipboard-pins.json")
 PIN_IMAGES = os.path.join(os.path.dirname(PINS), "clipboard-pins")   # pinned pictures
@@ -60,7 +66,7 @@ TERMINALS = ("kitty", "ghostty", "foot", "alacritty", "wezterm", "ptyxis", "term
 
 P = palette.load(THEME)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.clipboard { background: transparent; }
 .backdrop { background: alpha(black, 0.12); }
 .popup {
@@ -121,7 +127,7 @@ button.act.pin.on { color: @yellow; opacity: 1; }
 button.act.del:hover { color: @red; }
 .empty { color: @grey; font-weight: normal; padding: 40px; }
 .footer { color: @grey; font-weight: normal; font-size: 11px; margin: 8px 4px 0 4px; }
-"""
+""")
 
 I_CLIP, I_TEXT, I_LINK, I_CODE, I_NUM, I_IMG, I_COLOR = (
     "\U000f014c", "\U000f09ed", "\U000f0337", "\U000f0169", "\U000f03a0", "\U000f02e9", "\U000f0266")
@@ -186,6 +192,18 @@ def thumb_file(line, cid):
     return path
 
 
+def thumbnail(path):
+    """The picture as a texture no bigger than THUMB_MAX_W x THUMB_MAX_H, with its
+    aspect ratio (LEAK-3). A small picture keeps its own size."""
+    _fmt, w, h = GdkPixbuf.Pixbuf.get_file_info(path)
+    scale = min(1.0, THUMB_MAX_H / h, THUMB_MAX_W / w) if w and h else 1.0
+    if scale >= 1.0:
+        return Gdk.Texture.new_from_filename(path)
+    pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, max(1, round(w * scale)), max(1, round(h * scale)), True)
+    fmt = Gdk.MemoryFormat.R8G8B8A8 if pb.get_has_alpha() else Gdk.MemoryFormat.R8G8B8
+    return Gdk.MemoryTexture.new(pb.get_width(), pb.get_height(), fmt, pb.read_pixel_bytes(), pb.get_rowstride())
+
+
 def load_pins():
     """Texts are strings; pictures are {"image": file in PIN_IMAGES, "preview": cliphist line}."""
     try:
@@ -248,6 +266,10 @@ class Item(Gtk.ListBoxRow):
         self.app, self.text, self.line, self.cid, self.pinned = app, text, line, cid, pinned
         self.image = image          # file of a pinned picture
         self.kind = kind_of(text)
+        # the handlers reach this row through a weak reference: a lambda that holds
+        # the row itself is a cycle PyGObject never frees, so every row removed by
+        # fill() stayed in memory with its picture (LEAK-1)
+        me = weakref.ref(self)
         if pinned:
             self.add_css_class("pinned")
         box = Gtk.Box(spacing=10)
@@ -298,24 +320,24 @@ class Item(Gtk.ListBoxRow):
             pin.add_css_class("pin")
             if pinned:
                 pin.add_css_class("on")
-            pin.connect("clicked", lambda *_: app.toggle_pin(self))
+            pin.connect("clicked", lambda *_: app.toggle_pin(me()))
             acts.append(pin)
         dele = Gtk.Button(label=I_X, tooltip_text="Delete")
         dele.add_css_class("act")
         dele.add_css_class("del")
-        dele.connect("clicked", lambda *_: app.delete(self))
+        dele.connect("clicked", lambda *_: app.delete(me()))
         acts.append(dele)
         box.append(acts)
         self.set_child(box)
 
         right = Gtk.GestureClick(button=3)
-        right.connect("pressed", lambda *_: app.copy_only(self))
+        right.connect("pressed", lambda *_: app.copy_only(me()))
         self.add_controller(right)
 
     def set_thumb(self, path):
         if path:
             try:
-                self.picture.set_paintable(Gdk.Texture.new_from_filename(path))
+                self.picture.set_paintable(thumbnail(path))
             except GLib.Error:
                 pass
 

@@ -1,6 +1,6 @@
 # Screenshots
 
-Every app in this desktop, in the Straw Hat "jinbe" theme. `tests/screenshots.sh`
+Every app in this desktop, in the Straw Hat "zoro" theme. `tests/screenshots.sh`
 takes these on a live session, so they stay in sync with the code.
 
 Not shown: the clipboard popup (`SUPER+V`) — it would show your real clipboard
@@ -30,13 +30,9 @@ The network names are blurred.
 
 ![Wi-Fi popup](screenshots/popup-wifi.png)
 
-### Calendar (`SUPER+click` the date)
-
-The weather location is blurred.
-
-![Calendar popup](screenshots/popup-calendar.png)
-
 ### Power menu (`SUPER+B`)
+
+Lock, sleep, reboot or power off; the idle behavior lives in Settings.
 
 ![Power popup](screenshots/popup-power.png)
 
@@ -46,9 +42,12 @@ Standard, Scientific, Programmer, Converter, Date.
 
 ![Calculator popup](screenshots/popup-calculator.png)
 
-### World clock (`SUPER+click` the bar clock)
+### Clock — calendar and world clock (click the bar clock, either button)
 
-![World clock popup](screenshots/popup-worldclock.png)
+Calendar (Gregorian / Persian, with weather where you are) and up to 4
+pinned timezones, in one popup. The weather location is blurred.
+
+![Clock popup](screenshots/popup-worldclock.png)
 
 ### Emoji picker (`SUPER+.`)
 
@@ -64,11 +63,19 @@ Shown on its Actions tab. The All tab also lists your most used apps and recent 
 
 ![Displays popup](screenshots/popup-displays.png)
 
+### Minimized windows (`SUPER+SHIFT+-`, or the bar's minimized counter)
+
+A card per minimized window, newest first, with its icon, title, a number (1–9)
+and a thumbnail, over a dimmed, blurred backdrop. Type to filter, arrows to move,
+Enter or its number to bring one back, Delete / middle-click / its × to close it.
+
+![Minimized windows picker](screenshots/popup-minimized-picker.png)
+
 ## Settings (`SUPER+I`)
 
 ### Theme
 
-Pick a character; make, edit, rename or delete a custom one.
+Pick a character; make, edit, rename or delete a custom one. The GIF section (the bar GIF, when it plays, the GIF on a theme switch) sits above the cards, and each card has GIF… and Remove.
 
 ![Settings: Theme](screenshots/settings-theme.png)
 
@@ -78,7 +85,16 @@ One picture for every theme.
 
 ![Settings: Wallpaper](screenshots/settings-wallpaper.png)
 
+### Fonts
+
+The English (mono) and the Persian font, from the installed families.
+
+![Settings: Fonts](screenshots/settings-fonts.png)
+
 ### Displays
+
+Every screen and the arrangement, plus the selected screen's settings — on/off,
+resolution, refresh rate, scale, rotation, mirror and brightness.
 
 ![Settings: Displays](screenshots/settings-displays.png)
 
@@ -96,7 +112,19 @@ One picture for every theme.
 
 ### Power & sleep
 
+Power mode (Saver / Balanced / Speed), then the sleep timer and
+lock / sleep / reboot / power off. The battery lives on the Battery page and
+brightness on Displays.
+
 ![Settings: Power & sleep](screenshots/settings-power.png)
+
+### Battery
+
+Charge level, state, health, cycle count and power draw; Full / Balanced / Desk
+presets, "stop at" / "start at" sliders and charge speed — where the firmware's
+`charge_types` can be limited. Read-only, with the fix-it command, where it can't.
+
+![Settings: Battery](screenshots/settings-battery.png)
 
 ### Notifications
 
@@ -105,6 +133,10 @@ One picture for every theme.
 ### Keyboard & touchpad
 
 ![Settings: Keyboard & touchpad](screenshots/settings-keyboard.png)
+
+### Shortcuts
+
+![Settings: Shortcuts](screenshots/settings-shortcuts.png)
 
 ### Look & behavior
 

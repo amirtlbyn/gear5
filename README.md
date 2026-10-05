@@ -1,4 +1,4 @@
-# Summer Hyprland
+# Gear5
 
 An Everforest desktop for **Hyprland 0.56+** (Lua config), built on
 [**summer-day-and-night** by MathisP75](https://github.com/MathisP75/summer-day-and-night) —
@@ -20,13 +20,15 @@ your distro automatically.
 | `SUPER+V` | Clipboard history: filters, **pin** text and pictures (`Ctrl+P`) |
 | `SUPER+.` | Emoji picker (Unicode 18), pastes into the app you were using |
 | `SUPER+P` | **Displays**: Laptop only · Extend · Duplicate · External only, drag to arrange, resolution, scale, rotation, mirror. Keep-or-revert in 15 s; layouts are **remembered per set of screens** and come back when you plug them in |
-| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, displays, Wi-Fi, Bluetooth, sound, power & sleep, notifications, keyboard layouts, touchpad, gaps, animations, all in one window (no other app opens) |
-| `SUPER+A` | **Minimize** the window; the bar shows how many are minimized |
+| `SUPER+I` (or *Settings* in the quick settings) | **Settings**: Straw Hat theme, one wallpaper for every theme, an optional GIF for each theme, fonts (English + Persian), displays (per-screen brightness, night light), Wi-Fi, Bluetooth, sound, power & sleep (power mode, the sleep timer), **Battery** (level, health, charge limits: presets, stop/start, speed, dim when idle on battery), notifications, **Shortcuts** (change or turn off any desktop shortcut: click its keys and press the new ones), keyboard layouts, touchpad, gaps, animations, the bar background strip, all in one window (no other app opens) |
+| `SUPER+A` | **Minimize** the window; the bar shows how many are minimized (click it to open the picker below) |
 | `SUPER+-` | Bring back the last minimized window onto the desk you're on (again for the one before) |
-| `SUPER+SHIFT+-` | List the minimized windows, pick one to bring back |
+| `SUPER+SHIFT+-` | **Minimized windows** picker: a thumbnail card for each, newest first — type to filter, arrows + Enter or its number to bring one back, Delete / middle-click / its × to close it |
+| `SUPER+Tab` | **Overview**: every desk with windows, one row each, a thumbnail card per window (then the minimized ones). Click or Enter goes to that window on its desk; `1`…`0` go to a desk; type to filter. Window groups: `SUPER+G` makes one, `SUPER+SHIFT+G` goes to the next window in it |
 | `SUPER+N` | Notifications (swaync) |
-| `SUPER+L` | Lock (hyprlock) |
+| `SUPER+L` | Lock (hyprlock): the theme's colors, the blurred wallpaper, battery and what is playing, and the time in the zone the bar clock shows |
 | `SUPER+B` | Power menu |
+| `SUPER+SHIFT+Esc` | **Unstick**: an open popup that hangs and keeps the keyboard is closed and started again |
 | `SUPER+1…0` | Desk 1–10 — **every monitor switches together** |
 | `SUPER+Right/Left` | Cycle through the windows of this desk, across monitors |
 | `SUPER+Space`, `Alt+Shift` | Next keyboard layout (on every keyboard at once) |
@@ -37,7 +39,8 @@ From the bar:
   every player and browser tab.
 - **Quick settings**: battery and power mode, Wi-Fi, Bluetooth devices (with their
   battery), Do Not Disturb, stay awake, screen brightness (DDC/CI for external screens).
-- **Calendar**: Gregorian / Persian (Solar Hijri) with weather; **world clock**.
+- **Clock**: click the bar clock (either button) for one popup with a calendar
+  (Gregorian / Persian Solar Hijri, with weather) and up to 4 pinned timezones.
 - **Idle timer**: lock / sleep after N minutes, or stay awake.
 
 Every popup opens instantly (they stay running hidden), closes with `Esc` or a click
@@ -52,21 +55,21 @@ Every popup opens instantly (they stay running hidden), closes with `Esc` or a c
 | Ubuntu / Kubuntu | 26.04 LTS+ | [cppiber/hyprland](https://launchpad.net/~cppiber/+archive/ubuntu/hyprland) PPA |
 
 Ubuntu 24.04 isn't supported: it has no `gtk4-layer-shell`, which every popup needs.
-On other distros, install the packages yourself (see `install.sh` for the list) and
+On other distros, install the packages yourself (see `packages.sh` for the list) and
 run `./install.sh --configs-only`.
 
 ## Install
 
 ```sh
-git clone https://github.com/<you>/summer-hyprland
-cd summer-hyprland
+git clone https://github.com/<you>/gear5
+cd gear5
 ./install.sh            # --dry-run shows what it would do
 ```
 
 The installer:
 1. installs the packages (asks for `sudo`), plus the JetBrainsMono Nerd Font if missing;
 2. moves your current `~/.config/hypr`, `waybar` and `swaync` into
-   `~/.config/summer-hyprland-backup-<date>/`;
+   `~/.config/gear5-backup-<date>/`;
 3. copies the configs and downloads the wallpapers from the original rice.
 
 Then log out and choose **Hyprland** on the login screen (GDM, SDDM, …).
@@ -74,19 +77,44 @@ Then log out and choose **Hyprland** on the login screen (GDM, SDDM, …).
 To undo: delete `~/.config/{hypr,waybar,swaync}` and move the folders back out of the
 backup.
 
+If something stops working (a popup does not open, charge limits do nothing, a
+Flatpak app will not start), run `./doctor.sh`. It checks the packages, the battery
+udev rule, the user services and the document portal, and the popups, and prints the
+command that fixes each problem. It changes nothing by itself.
+
 ## Make it yours
 
 - **Theme and wallpaper**: `SUPER+I` → Theme / Wallpaper. From a terminal:
   `~/.config/waybar/scripts/theme.py list`, then `theme.py apply <name>`. The bar
   recolors in place (it restarts only if it was not already running); popups, borders,
-  lock screen and wallpaper all switch too; see `~/.config/hypr/themes/README.md` to
-  make your own.
-- **Everything else**: `SUPER+I` has a page for displays, Wi-Fi, Bluetooth, sound,
-  power & sleep (the sleep timer), notifications, keyboard & touchpad, and look &
-  behavior (gaps, animations). Displays, Wi-Fi, Sound and Power & sleep are the same panels as the bar popups. Bluetooth is the Bluetooth part of Quick settings.
-  `settings.py <page>` opens a page directly (e.g. `settings.py wifi`). Your keyboard,
-  touchpad and look choices are kept in `~/.config/hypr/user-settings.json` and win over
-  `hyprland.lua`.
+  lock screen, wallpaper and kitty's colors all switch too; see
+  `~/.config/hypr/themes/README.md` to make your own.
+- **Theme GIF**: each theme can have a GIF of your own (8 MB or less, kept as
+  `~/.config/hypr/themes/<theme id>.gif`, never in git). `SUPER+I` → Theme: *GIF…* on a
+  card picks it and *Remove* deletes it. The GIF plays on the bar, left of the desks
+  (click it to open the Theme page), and on the lock screen above the clock; a theme with no GIF
+  has no pill on the bar and no picture on the lock screen. Waybar plays no GIF,
+  so the bar shows its frames one after the other (a flip-book). *Bar GIF plays*
+  chooses when the bar moves: always, only on AC power (the default), or for 5 s after
+  a theme switch; otherwise it rests on the first frame. The lock screen shows the
+  GIF's first frame, still. *GIF on theme switch* pops the GIF up
+  under the bar for about two seconds when you switch theme. No picture ships with the project.
+- **Fonts**: `SUPER+I` → Fonts. The English (mono) and the Persian font of the bar,
+  popups, notifications, lock screen and kitty, chosen from the installed families
+  and applied everywhere at once.
+- **Everything else**: `SUPER+I` has a page for displays (with each screen's
+  brightness, and a night light that follows sunset or a schedule), Wi-Fi, Bluetooth, sound, power & sleep (power mode, the sleep
+  timer, and lock / sleep / reboot / power off), **Battery** (level, health,
+  cycles, and charge limits, where the firmware's `charge_types` can be written —
+  a `battery-limits` user service enforces
+  them at login, every 30 s, and within 2 s of a change; and *Dim when idle*, which
+  dims the screen to 30 % after 1–10 idle minutes on battery and brings the brightness
+  back when you move), notifications, keyboard &
+  touchpad, and look & behavior (gaps, animations, the bar strip). Displays, Wi-Fi, Sound and the
+  power page's panels are the same as the bar popups'. Bluetooth is the Bluetooth
+  part of Quick settings. `settings.py <page>` opens a page directly (e.g.
+  `settings.py wifi`). Your keyboard, touchpad and look choices are kept in
+  `~/.config/hypr/user-settings.json` and win over `hyprland.lua`.
 - **Zen Browser shows the same tabs in every window**: that is Zen's *Window Sync*
   (Zen 1.18+), not this desktop. To turn it off, open `about:config` and set
   `zen.window-sync.enabled` to `false` (tab renaming and dragging a tab into a new
@@ -97,17 +125,8 @@ backup.
   `~/.config/hypr/displays.json`, one per set of connected screens. For fixed rules,
   see the *Monitors* section of `hyprland.lua`; `HOME_SLOTS` pins external screens to a
   desk block.
-- **Compact bar on a vertical screen**: add a second bar to
-  `~/.config/waybar/bar/config` and exclude that screen from the first one:
-  ```jsonc
-  [
-    { "output": ["!DP-1", "*"], /* …the normal bar… */ },
-    { "output": "DP-1", "width": 440, "height": 60, "layer": "top", "position": "top",
-      "modules-center": ["group/desks"],
-      "include": ["~/.config/waybar/bar/modules.jsonc"] }
-  ]
-  ```
-- **Lock screen picture**: save any square image as `~/.face`.
+- **Vertical screens** get a compact bar with only the workspaces, automatically
+  (`waybar/scripts/bar_config.py` reads which screens are rotated).
 - **Bar logo**: detected from `/etc/os-release`; force one with
   `echo arch > ~/.config/waybar/distro`.
 - **Brightness of external screens** uses DDC/CI: your user may need to be in the
@@ -148,6 +167,8 @@ anyone the right to redistribute them. So each person adds their own:
    `~/.config/hypr/wallpapers/wallpaper.png` (or `.jpg`, `.jpeg`, `.webp`). It is the
    same picture for every theme; with none, the desktop is filled with the current
    theme's background color.
+3. For a GIF on the bar and the lock screen, pick one per theme from `SUPER+I` → Theme →
+   *GIF…* on a card. The lock screen also shows the battery and what is playing.
 
 To change a character's colors, edit `~/.config/hypr/themes/<theme id>.json` (the color
 names are explained in `~/.config/hypr/themes/README.md`), then apply it again. To add

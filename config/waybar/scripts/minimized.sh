@@ -5,5 +5,5 @@ n=$(hyprctl -j clients 2>/dev/null | jq '[.[] | select(.workspace.name == "speci
 if [[ -z "$n" || "$n" == 0 ]]; then
   echo '{"text": ""}'
 else
-  printf '{"text": "󰖰 %s", "tooltip": "%s minimized · click for the list · SUPER+- brings back the last one", "class": "has"}\n' "$n" "$n"
+  printf '{"text": "󰖰 %s", "tooltip": "%s minimized · click for the picker · SUPER+- brings back the last one", "class": "has"}\n' "$n" "$n"
 fi

@@ -44,8 +44,10 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
+import empty_state  # noqa: E402
 import popup_backdrop  # noqa: E402
 
 # imported by Settings (panel.py): no window, the theme in use
@@ -87,7 +89,6 @@ list.nets > row.connected { background: @bg2; box-shadow: inset 4px 0 0 @green; 
 .bars { font-size: 18px; min-width: 28px; }
 .lock { color: @grey; }
 .check { color: @green; }
-.placeholder { color: @grey; font-weight: normal; padding: 24px 8px; }
 
 button.pill {
   background: @green; color: @bg0;
@@ -118,7 +119,8 @@ button.footer { margin-top: 10px; padding: 6px 10px; }
 .popup switch slider { background: @fg; border: none; border-radius: 12px; box-shadow: none; }
 .popup spinner { color: @green; }
 """
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
+STYLE += empty_state.CSS
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE)
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +280,15 @@ class NetRow(Gtk.ListBoxRow):
             self.menu.connect_net(self.net, pw)
 
 
+def wifi_empty(enabled, turning_on=False):
+    """EMPTY-1: (sentence, button) of the empty network list."""
+    if turning_on:
+        return "Looking for networks…", ""
+    if not enabled:
+        return "Wi-Fi is off.", "Turn on Wi-Fi"
+    return "No networks nearby.", "Scan again"
+
+
 class WifiPanel:
     """The switch, the networks, passwords, disconnect and forget. Shown by the popup
     below and by Settings (see panel.py for the host)."""
@@ -327,8 +338,8 @@ class WifiPanel:
         self.listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.listbox.add_css_class("nets")
         self.listbox.connect("row-activated", self.on_row)
-        self.placeholder = Gtk.Label(label="Looking for networks…")
-        self.placeholder.add_css_class("placeholder")
+        self.placeholder = empty_state.EmptyState()
+        self.show_empty(True, turning_on=True)
         self.listbox.set_placeholder(self.placeholder)
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
                                     propagate_natural_height=True, max_content_height=380)
@@ -387,12 +398,21 @@ class WifiPanel:
         self.open_row = None
         while (child := self.listbox.get_first_child()) is not None:
             self.listbox.remove(child)
+        self.show_empty(enabled)
         if not enabled:
-            self.placeholder.set_label("Wi-Fi is turned off")
             return
-        self.placeholder.set_label("No networks found — try rescan")
         for net in nets:
             self.listbox.append(NetRow(self, net, net["ssid"] in self.saved))
+
+    def show_empty(self, enabled, turning_on=False):
+        """What the list says when it has no network, and its one action."""
+        text, button = wifi_empty(enabled, turning_on)
+        actions = {"Turn on Wi-Fi": self.turn_on, "Scan again": lambda: self.refresh(rescan=True)}
+        self.placeholder.update(text, button=button, action=actions.get(button))
+
+    def turn_on(self):
+        """The empty state's button: the same path as the switch."""
+        self.switch.set_active(True)
 
     # ----- events ------------------------------------------------------------
     def on_escape(self):
@@ -418,7 +438,7 @@ class WifiPanel:
                 return
             self.set_status("")
             if state:
-                self.placeholder.set_label("Looking for networks…")
+                self.show_empty(True, turning_on=True)
                 # give the card a moment to come up, then scan
                 GLib.timeout_add(2500, lambda: (self.refresh(rescan=True), False)[1])
             else:

@@ -19,6 +19,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import theme_gif  # noqa: E402
 import palette  # noqa: E402
 import theme  # noqa: E402
 
@@ -288,3 +289,4 @@ def delete(theme_id, themes=palette.THEMES, apply=_apply_theme_py):
     if palette.current(themes) == theme_id:
         apply(palette.DEFAULT)
     os.remove(os.path.join(themes, theme_id + ".json"))
+    theme_gif.forget(theme_id, os.path.dirname(os.path.dirname(themes)))

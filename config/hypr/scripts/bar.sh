@@ -22,7 +22,7 @@ trap 'kill "$child" 2>/dev/null; exit 0' TERM INT
 
 while [[ "$(cat "$KEEPER" 2>/dev/null)" == "$$" ]]; do
   echo "--- $(date '+%F %T') starting waybar" >> "$LOG"
-  waybar -c ~/.config/waybar/bar/config -s ~/.config/waybar/bar/style.css >> "$LOG" 2>&1 &
+  waybar -c "$(~/.config/waybar/scripts/bar_config.py || echo ~/.config/waybar/bar/config)" -s ~/.config/waybar/bar/style.css >> "$LOG" 2>&1 &
   child=$!
   wait "$child"
   rc=$?

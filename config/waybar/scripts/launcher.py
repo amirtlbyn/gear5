@@ -58,6 +58,7 @@ except (ValueError, ImportError):
     LS = None
 
 import browsers  # noqa: E402
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -79,7 +80,7 @@ SKIP_DIRS = ("/.", "/node_modules/", "/__pycache__/", "/site-packages/", "/venv/
 
 P = palette.load(THEME)
 
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + """
 window.launcher { background: transparent; }
 .backdrop { background: alpha(black, 0.12); }
 .popup {
@@ -117,7 +118,7 @@ image.symbolic { color: @fg; }
 }
 .chips button:hover { background: @bg2; }
 .chips button.active { background: @green; color: @on_accent; }
-"""
+""")
 
 
 # ---------------------------------------------------------------------------
@@ -318,17 +319,17 @@ ACTIONS = [
      "preferences-system-symbolic", popup("control-center"), False),
     ("Bluetooth", "bluetooth devices headset buds mouse keyboard pair", "bluetooth-active-symbolic",
      popup("control-center"), False),
-    ("Calendar", "date time weather persian jalali", "x-office-calendar-symbolic", popup("calendar-popup"), False),
     ("Calculator", "math calc convert units", "accessories-calculator-symbolic", popup("calculator"), False),
     ("Clipboard history", "paste copy clipboard", "edit-paste-symbolic", popup("clipboard"), False),
     ("Emoji", "emoji smiley picker", "face-smile-symbolic", popup("emoji-picker"), False),
-    ("World clock", "time zones clock", "preferences-system-time-symbolic", popup("worldclock"), False),
+    ("World clock", "time zones clock calendar date weather persian jalali", "preferences-system-time-symbolic",
+     popup("worldclock"), False),
     ("Notifications", "notification center swaync", "preferences-system-notifications-symbolic",
      sh("swaync-client -t -sw"), False),
     ("Screenshot", "screenshot capture area grim", "camera-photo-symbolic",
      sh('sleep 0.3; grim -g "$(slurp)" - | wl-copy'), False),
     ("Lock screen", "lock", "system-lock-screen-symbolic",
-     sh("pidof hyprlock || (hyprctl switchxkblayout all 0; hyprlock)"), False),
+     sh("~/.config/hypr/scripts/lock.sh"), False),
     ("Suspend", "sleep suspend", "weather-clear-night-symbolic", sh("systemctl suspend"), True),
     ("Log out", "logout exit quit session hyprland", "system-log-out-symbolic", hypr("hl.dsp.exit()"), True),
     ("Restart", "reboot restart", "system-reboot-symbolic", sh("systemctl reboot"), True),

@@ -46,8 +46,12 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import brightness  # noqa: E402
+import fonts  # noqa: E402
 import palette  # noqa: E402
+import power_mode  # noqa: E402
 
+import empty_state  # noqa: E402
 import popup_backdrop  # noqa: E402
 
 # imported by Settings (panel.py): no window, the theme in use
@@ -56,8 +60,7 @@ WIDTH = 440
 HERE = os.path.dirname(os.path.abspath(__file__))
 IDLE = os.path.expanduser("~/.config/hypr/scripts/idle.sh")
 IDLE_PREV = os.path.expanduser("~/.config/hypr/idle-state.before-awake")
-PP = ["org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles",
-      "org.freedesktop.UPower.PowerProfiles", "ActiveProfile"]
+PROFILES = power_mode.PROFILES
 
 ALIASES = {}
 P = palette.load(THEME, **ALIASES)
@@ -184,7 +187,8 @@ button.footer:hover { background: @bg2; }
 .popup switch:checked { background: @green; }
 .popup switch slider { background: @fg; border: none; border-radius: 12px; box-shadow: none; }
 """
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
+STYLE += empty_state.CSS
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE)
 
 I_WIFI, I_WIFI_OFF = "\U000f05a9", "\U000f05aa"
 I_BT, I_BT_OFF, I_BT_ON = "\U000f00af", "\U000f00b2", "\U000f00b1"
@@ -205,8 +209,6 @@ DEV_ICONS = {
     "input-keyboard": "\U000f030c", "input-mouse": "\U000f037d", "input-gaming": "\U000f0297",
     "input-tablet": "\U000f04f7", "phone": "\U000f011c", "computer": "\U000f0379",
 }
-PROFILES = [("power-saver", "\U000f032a  Saver"), ("balanced", "\U000f0b9d  Balanced"),
-            ("performance", "\U000f04c5  Speed")]
 
 
 # ---------------------------------------------------------------------------
@@ -268,9 +270,7 @@ def read_battery():
 
 
 def read_profile():
-    code, out, _ = run("busctl", "--system", "get-property", *PP, timeout=3)
-    m = re.search(r'"([^"]+)"', out)
-    return m.group(1) if code == 0 and m else None
+    return power_mode.read()
 
 
 def read_wifi():
@@ -282,104 +282,8 @@ def read_wifi():
     return on, ssid
 
 
-def laptop_brightness():
-    code, out, _ = run("brightnessctl", "-m", "-c", "backlight", timeout=3)
-    parts = out.strip().split(",")
-    if code != 0 or len(parts) < 4:
-        return None
-    try:
-        return int(parts[3].rstrip("%"))
-    except ValueError:
-        return None
-
-
-VENDORS = {"SAM": "Samsung", "MSI": "MSI", "DEL": "Dell", "GSM": "LG", "ACR": "Acer", "AUS": "ASUS",
-           "BNQ": "BenQ", "HWP": "HP", "LEN": "Lenovo", "PHL": "Philips", "AOC": "AOC", "VSC": "ViewSonic",
-           "GBT": "Gigabyte", "HPN": "HP", "SNY": "Sony", "XMI": "Xiaomi", "MIC": "MSI"}
-DDC_CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
-                         "control-center", "ddc.json")
-
-
-def ddc_displays(connected):
-    """External screens that take brightness over the cable (DDC/CI).
-    Finding them is slow, so the answer is kept until the set of screens changes."""
-    import json
-    key = ["v2"] + sorted(connected)
-    try:
-        with open(DDC_CACHE) as f:
-            cache = json.load(f)
-        if cache.get("screens") == key:
-            return cache["displays"]
-    except (OSError, ValueError, KeyError):
-        pass
-    _, out, _ = run("ddcutil", "detect", "--terse", timeout=60)
-    displays = []
-    for block in out.split("\n\n"):
-        bus = re.search(r"/dev/i2c-(\d+)", block)
-        mon = re.search(r"Monitor:\s+(.+)", block)
-        conn = re.search(r"DRM connector:\s+card\d+-(\S+)", block)
-        if not block.startswith("Display") or not bus:
-            continue
-        mfg, model = (mon.group(1).split(":") + ["", ""])[:2] if mon else ("", "")
-        name = " ".join(x for x in (VENDORS.get(mfg, mfg), model.replace(VENDORS.get(mfg, mfg), "").strip()) if x)
-        displays.append(dict(bus=int(bus.group(1)), name=name or f"Screen {bus.group(1)}",
-                             output=conn.group(1) if conn else None))
-    try:
-        os.makedirs(os.path.dirname(DDC_CACHE), exist_ok=True)
-        with open(DDC_CACHE, "w") as f:
-            json.dump(dict(screens=key, displays=displays), f)
-    except OSError:
-        pass
-    return displays
-
-
-def read_screens():
-    """Brightness of every screen that can change it: the laptop panel (when it is on)
-    and external screens with DDC/CI."""
-    import json
-    try:
-        mons = json.loads(run("hyprctl", "-j", "monitors", timeout=3)[1])
-    except ValueError:
-        mons = []
-    mons.sort(key=lambda m: (m.get("x", 0), m.get("y", 0)))   # left to right, like the desk
-    names = [m["name"] for m in mons]
-    externals = [n for n in names if not re.match(r"eDP|LVDS|DSI", n)]
-    ddc = {d["output"]: d for d in ddc_displays(names)} if externals else {}
-    screens = []
-    for m in mons:
-        out = m["name"]
-        if re.match(r"eDP|LVDS|DSI", out):
-            value = laptop_brightness()
-            if value is not None:
-                screens.append(dict(key="laptop", name="Laptop", how="backlight", value=value))
-            continue
-        d = ddc.get(out)
-        if d:
-            _, text, _ = run("ddcutil", "--bus", str(d["bus"]), "getvcp", "10", "--terse", timeout=10)
-            v = re.search(r"VCP 10 C (\d+) (\d+)", text)
-            if v and int(v.group(2)) > 0:
-                screens.append(dict(key=f"ddc:{d['bus']}", name=d["name"], how="hardware",
-                                    value=round(int(v.group(1)) * 100 / int(v.group(2))),
-                                    max=int(v.group(2))))
-                continue
-        # no DDC/CI (e.g. through a dock): dim it in software instead
-        model = m.get("model") or out
-        make = VENDORS.get((m.get("make") or "")[:3].upper(), m.get("make") or "")
-        name = model if make.lower() in model.lower() or not make else f"{make} {model}"
-        screens.append(dict(key=f"dim:{out}", name=name, how="dimmed",
-                            value=dim_level(out)))
-    return screens
-
-
-DIM_DIR = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "screen-dim")
-
-
-def dim_level(output):
-    try:
-        with open(os.path.join(DIM_DIR, output)) as f:
-            return max(10, min(100, int(f.read().strip())))
-    except (OSError, ValueError):
-        return 100
+# the brightness itself (backlight, DDC/CI, the software dimmer) lives in
+# brightness.py, shared with Settings' Displays page
 
 
 def read_idle():
@@ -441,7 +345,7 @@ def read_bluetooth(scanning):
 
 def read_state(scanning, screens):
     return dict(battery=read_battery(), profile=read_profile(), wifi=read_wifi(),
-                bt=read_bluetooth(scanning), screens=read_screens() if screens else None,
+                bt=read_bluetooth(scanning), screens=brightness.read_screens() if screens else None,
                 dnd=run("swaync-client", "-D", timeout=3)[1].strip() == "true",
                 idle=read_idle())
 
@@ -523,6 +427,16 @@ class DevRow(Gtk.ListBoxRow):
         self.revealer.set_reveal_child(True)
 
 
+def bt_empty(present, powered):
+    """EMPTY-2: (sentence, button) of the empty device list; no button when there
+    is no adapter (nothing could help)."""
+    if not present:
+        return "No Bluetooth adapter found.", ""
+    if not powered:
+        return "Bluetooth is off.", "Turn on Bluetooth"
+    return "No devices yet.", "Add device"
+
+
 class BluetoothPanel:
     """Paired devices (connect, disconnect, forget) and Add device (scan and pair).
     Part of the quick settings popup below, and a page of Settings (see panel.py for
@@ -569,7 +483,8 @@ class BluetoothPanel:
         self.devs = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.devs.add_css_class("devs")
         self.devs.connect("row-activated", self.on_dev)
-        self.dev_placeholder = label("No devices yet — tap Add device", "placeholder")
+        self.dev_placeholder = empty_state.EmptyState()
+        self.show_empty(True, True)
         self.devs.set_placeholder(self.dev_placeholder)
         scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER,
                                     propagate_natural_height=True, max_content_height=340)
@@ -621,6 +536,12 @@ class BluetoothPanel:
             self.set_power(state)
         return False
 
+    def show_empty(self, present, powered):
+        """What the device list says when it has no device, and its one action."""
+        text, button = bt_empty(present, powered)
+        actions = {"Turn on Bluetooth": lambda: self.set_power(True), "Add device": self.toggle_scan}
+        self.dev_placeholder.update(text, button=button, action=actions.get(button))
+
     def set_power(self, on):
         def work():
             if on:
@@ -637,13 +558,9 @@ class BluetoothPanel:
         self.dev_key = key
         while (child := self.devs.get_first_child()) is not None:
             self.devs.remove(child)
-        if not bt["present"]:
-            self.dev_placeholder.set_label("No Bluetooth adapter found")
+        self.show_empty(bt["present"], bt["powered"])
+        if not (bt["present"] and bt["powered"]):
             return
-        if not bt["powered"]:
-            self.dev_placeholder.set_label("Bluetooth is off")
-            return
-        self.dev_placeholder.set_label("No devices yet — tap Add device")
         for d in bt["paired"]:
             row = DevRow(d)
             self.devs.append(row)
@@ -779,19 +696,258 @@ class BluetoothPanel:
         run_bg(work, done)
 
 
+class BatteryPanel:
+    """Battery charge and power mode (saver / balanced / speed). Part of the
+    quick settings popup below (see panel.py for the host): the popup reads
+    everything at once through host.refresh. Settings does not embed this panel:
+    its Battery page and its Power & sleep page show these things themselves."""
+
+    def __init__(self, host):
+        self.host = host
+        self.build()
+        if host.embedded:
+            GLib.timeout_add_seconds(3, self._tick)
+
+    def build(self):
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        if self.host.embedded:
+            root.add_css_class("popup")
+            title = Gtk.Box(spacing=10, margin_bottom=6)
+            title.append(label("\U000f0079  Battery", "title", xalign=0, hexpand=True))
+            root.append(title)
+
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.card.add_css_class("battery")
+        top = Gtk.Box(spacing=12)
+        self.bat_icon = label(css="bat-icon")
+        top.append(self.bat_icon)
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+        self.bat_pct = label(css="bat-pct", xalign=0)
+        self.bat_text = label(css="sub", xalign=0)
+        text.append(self.bat_pct)
+        text.append(self.bat_text)
+        top.append(text)
+        self.card.append(top)
+        self.segment = Gtk.Box(homogeneous=True)
+        self.segment.add_css_class("segment")
+        self.profile_btns = {}
+        for key, text_ in PROFILES:
+            b = Gtk.Button(label=text_)
+            b.connect("clicked", lambda _b, k=key: self.set_profile(k))
+            self.profile_btns[key] = b
+            self.segment.append(b)
+        self.card.append(self.segment)
+        self.status = label(css="status", xalign=0, wrap=True)
+        self.status.set_visible(False)
+        self.card.append(self.status)
+        root.append(self.card)
+        self.root = root
+
+    def on_show(self):
+        self.set_status()
+        self.refresh()
+
+    def on_hide(self):
+        pass
+
+    def _tick(self):
+        if self.host.is_shown():
+            self.refresh()
+        return True
+
+    def refresh(self):
+        if not self.host.embedded:
+            self.host.refresh()  # the popup reads everything at once
+            return
+        run_bg(lambda: (read_battery(), read_profile()), lambda r: self.apply(*r))
+
+    def set_status(self, text="", error=False):
+        self.status.set_label(text)
+        self.status.set_visible(bool(text))
+        (self.status.add_css_class if error else self.status.remove_css_class)("error")
+
+    def apply(self, battery, profile):
+        self.root.set_visible(battery is not None or profile is not None)
+        if battery:
+            self.bat_icon.set_label(battery_icon(battery["pct"], battery["charging"]))
+            self.bat_pct.set_label(f"{battery['pct']}%")
+            self.bat_text.set_label(battery["text"])
+            (self.card.add_css_class if battery["pct"] <= 20 and not battery["charging"]
+             else self.card.remove_css_class)("low")
+        self.segment.set_visible(profile is not None)
+        for key, btn in self.profile_btns.items():
+            (btn.add_css_class if key == profile else btn.remove_css_class)("active")
+
+    def set_profile(self, key):
+        def done(res):
+            if res[0] != 0:
+                self.set_status(res[2].strip() or "Couldn't change power mode", error=True)
+            self.refresh()
+        for k, btn in self.profile_btns.items():
+            (btn.add_css_class if k == key else btn.remove_css_class)("active")
+        run_bg(lambda: power_mode.set_profile(key), done)
+
+
+class BrightnessPanel:
+    """One brightness slider per screen: the laptop backlight, external screens
+    over DDC/CI, and a software dimmer for screens that can't change their own.
+    Part of the quick settings popup below (see panel.py for the host); Settings
+    shows brightness on its Displays page instead. Reading the screens is slow,
+    so it happens on each showing, not on a timer; in the popup, the popup reads
+    them once per opening and pushes them in (host.refresh). The read and the
+    write go through brightness.py, shared with the Displays page."""
+
+    def __init__(self, host):
+        self.host = host
+        self.updating = False
+        self.bright_open = False
+        self.screen_scales = []
+        self.build()
+
+    def build(self):
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        if self.host.embedded:
+            root.add_css_class("popup")  # so ".popup scale …" styles its sliders
+        self.card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.card.add_css_class("card")
+        self.card.set_margin_top(8)
+        self.card.set_visible(False)
+        root.append(self.card)
+        self.root = root
+
+    def on_show(self):
+        self.refresh()
+
+    def on_hide(self):
+        pass
+
+    def refresh(self):
+        if not self.host.embedded:
+            self.host.refresh()  # the popup reads everything at once
+            return
+        run_bg(brightness.read_screens, self.apply_screens)
+
+    def apply_screens(self, screens):
+        """One main slider for every screen, and a drawer with a slider per screen."""
+        while (child := self.card.get_first_child()) is not None:
+            self.card.remove(child)
+        self.card.set_visible(bool(screens))
+        self.screen_scales = []
+        if not screens:
+            return
+
+        head = Gtk.Box(spacing=10)
+        self.bright_icon = label(sun_icon(100), "bright-icon")
+        head.append(self.bright_icon)
+        head.append(label("Brightness", "bright-title", xalign=0, hexpand=True))
+        self.bright_pct = label(css="bright-pct", xalign=1)
+        head.append(self.bright_pct)
+        if len(screens) > 1:
+            self.chevron = Gtk.Button(valign=Gtk.Align.CENTER)
+            self.chevron.add_css_class("chevron")
+            self.chevron.set_tooltip_text("Each screen on its own")
+            self.chevron.connect("clicked", lambda *_: self.toggle_drawer())
+            head.append(self.chevron)
+        self.card.append(head)
+
+        self.master = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 100, 1)
+        self.master.set_hexpand(True)
+        self.master.set_draw_value(False)
+        self.master.set_tooltip_text("All screens")
+        self.master.connect("value-changed", self.on_master)
+        self.card.append(self.master)
+
+        self.drawer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
+                                   transition_duration=220)
+        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=6)
+        for sc in screens:
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            row.add_css_class("screen-row")
+            top = Gtk.Box(spacing=8)
+            top.append(label(I_LAPTOP if sc["key"] == "laptop" else I_MONITOR, "screen-icon"))
+            top.append(label(sc["name"], "screen-name", xalign=0, hexpand=True,
+                             ellipsize=Pango.EllipsizeMode.END))
+            tag = label({"hardware": "DDC", "backlight": "BACKLIGHT", "dimmed": "SOFTWARE"}[sc["how"]], "tag")
+            tag.set_tooltip_text({"hardware": "The monitor itself changes brightness",
+                                  "backlight": "Laptop backlight",
+                                  "dimmed": "This screen can't change its own brightness (no DDC/CI, "
+                                            "e.g. behind a dock), so it is dimmed in software"}[sc["how"]])
+            if sc["how"] == "dimmed":
+                tag.add_css_class("soft")
+            top.append(tag)
+            pct = label(f"{sc['value']}%", "screen-pct", xalign=1)
+            top.append(pct)
+            row.append(top)
+            low = 10 if sc["how"] == "dimmed" else 1
+            scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, low, 100, 1)
+            scale.set_hexpand(True)
+            scale.set_draw_value(False)
+            scale.set_value(sc["value"])
+            scale.connect("value-changed", self.on_screen, sc, pct)
+            row.append(scale)
+            rows.append(row)
+            self.screen_scales.append((sc, scale, pct, low))
+        self.drawer.set_child(rows)
+        self.drawer.set_reveal_child(self.bright_open and len(screens) > 1)
+        self.card.append(self.drawer)
+        self.sync_master()
+        self.update_chevron()
+
+    def update_chevron(self):
+        if len(self.screen_scales) < 2:
+            return
+        n = len(self.screen_scales)
+        self.chevron.set_label(f"{n} screens  {I_UP if self.bright_open else I_DOWN}")
+        (self.chevron.add_css_class if self.bright_open else self.chevron.remove_css_class)("open")
+
+    def toggle_drawer(self):
+        self.bright_open = not self.bright_open
+        self.drawer.set_reveal_child(self.bright_open)
+        self.update_chevron()
+
+    def sync_master(self):
+        """Main slider shows the average of all screens."""
+        values = [scale.get_value() for _sc, scale, _pct, _low in self.screen_scales]
+        avg = round(sum(values) / len(values)) if values else 100
+        self.updating = True
+        self.master.set_value(avg)
+        self.updating = False
+        self.bright_pct.set_label(f"{avg}%")
+        self.bright_icon.set_label(sun_icon(avg))
+
+    def on_master(self, scale):
+        if self.updating:
+            return
+        value = int(scale.get_value())
+        self.bright_pct.set_label(f"{value}%")
+        self.bright_icon.set_label(sun_icon(value))
+        self.updating = True
+        for sc, s, pct, low in self.screen_scales:
+            v = max(low, value)
+            s.set_value(v)
+            pct.set_label(f"{v}%")
+            self.on_brightness(sc, v)
+        self.updating = False
+
+    def on_screen(self, scale, sc, pct):
+        if self.updating:
+            return
+        value = int(scale.get_value())
+        pct.set_label(f"{value}%")
+        self.on_brightness(sc, value)
+        self.sync_master()
+
+    def on_brightness(self, sc, value):
+        brightness.set(sc, value)
+
+
 class ControlCenter(Gtk.Application):
     def __init__(self):
         super().__init__(application_id="io.local.controlcenter")
         self.win = None
         self.st = None
         self.bt = None
-        self.ddc_pending = {}
-        self.ddc_busy = set()
-        self.ddc_lock = threading.Lock()
         self.screens_read = False
-        self.updating = False
-        self.bright_open = False
-        self.screen_scales = []
         self.start_hidden = "--hidden" in sys.argv
 
     # ----- host of the Bluetooth panel (see panel.py) ------------------------------
@@ -824,6 +980,7 @@ class ControlCenter(Gtk.Application):
         self.screens_read = False    # screens may have changed since last time
         self.win.present()
         self.bt.on_show()            # clears its status line and refreshes everything
+        self.bat.set_status()        # the battery card's error line from last time
 
     def on_close(self, win):
         self.bt.on_hide()
@@ -885,29 +1042,8 @@ class ControlCenter(Gtk.Application):
         popup.set_size_request(WIDTH, -1)
 
         # battery + power mode
-        bat = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        bat.add_css_class("battery")
-        self.bat_box = bat
-        top = Gtk.Box(spacing=12)
-        self.bat_icon = label(css="bat-icon")
-        top.append(self.bat_icon)
-        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
-        self.bat_pct = label(css="bat-pct", xalign=0)
-        self.bat_text = label(css="sub", xalign=0)
-        text.append(self.bat_pct)
-        text.append(self.bat_text)
-        top.append(text)
-        bat.append(top)
-        self.segment = Gtk.Box(homogeneous=True)
-        self.segment.add_css_class("segment")
-        self.profile_btns = {}
-        for key, text_ in PROFILES:
-            b = Gtk.Button(label=text_)
-            b.connect("clicked", lambda _b, k=key: self.set_profile(k))
-            self.profile_btns[key] = b
-            self.segment.append(b)
-        bat.append(self.segment)
-        popup.append(bat)
+        self.bat = BatteryPanel(self)
+        popup.append(self.bat.root)
 
         # tiles
         grid = Gtk.Grid(column_spacing=8, row_spacing=8, column_homogeneous=True, margin_top=12)
@@ -922,11 +1058,8 @@ class ControlCenter(Gtk.Application):
         popup.append(grid)
 
         # brightness, one slider per screen (filled in once the screens are read)
-        self.bright = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        self.bright.add_css_class("card")
-        self.bright.set_margin_top(8)
-        self.bright.set_visible(False)
-        popup.append(self.bright)
+        self.bright = BrightnessPanel(self)
+        popup.append(self.bright.root)
 
         # bluetooth
         self.bt = BluetoothPanel(self)
@@ -989,17 +1122,7 @@ class ControlCenter(Gtk.Application):
         if self.win is None:
             return
         self.st = st
-        b = st["battery"]
-        self.bat_box.set_visible(b is not None or st["profile"] is not None)
-        if b:
-            self.bat_icon.set_label(battery_icon(b["pct"], b["charging"]))
-            self.bat_pct.set_label(f"{b['pct']}%")
-            self.bat_text.set_label(b["text"])
-            (self.bat_box.add_css_class if b["pct"] <= 20 and not b["charging"]
-             else self.bat_box.remove_css_class)("low")
-        self.segment.set_visible(st["profile"] is not None)
-        for key, btn in self.profile_btns.items():
-            (btn.add_css_class if key == st["profile"] else btn.remove_css_class)("active")
+        self.bat.apply(st["battery"], st["profile"])
 
         wifi_on, ssid = st["wifi"]
         self.t_wifi.set(I_WIFI if wifi_on else I_WIFI_OFF, "Wi-Fi",
@@ -1023,23 +1146,11 @@ class ControlCenter(Gtk.Application):
                          "On" if awake else "Off", awake)
 
         if st["screens"] is not None:
-            self.apply_screens(st["screens"])
+            self.bright.apply_screens(st["screens"])
 
         self.bt.apply(bt)
 
     # ----- actions -----------------------------------------------------------
-    def set_profile(self, key):
-        def work():
-            return run("busctl", "--system", "set-property", *PP, "s", key, timeout=5)
-
-        def done(res):
-            if res[0] != 0:
-                self.bt.set_status(res[2].strip() or "Couldn't change power mode", error=True)
-            self.refresh()
-        for k, btn in self.profile_btns.items():
-            (btn.add_css_class if k == key else btn.remove_css_class)("active")
-        run_bg(work, done)
-
     def open_wifi(self):
         spawn(os.path.join(HERE, "popup.sh"), "wifi-menu", THEME)
         self.win.close()
@@ -1072,150 +1183,6 @@ class ControlCenter(Gtk.Application):
             return run(IDLE, "set", "awake", timeout=10)
         run_bg(work, lambda _r: self.refresh())
 
-    def apply_screens(self, screens):
-        """One main slider for every screen, and a drawer with a slider per screen."""
-        while (child := self.bright.get_first_child()) is not None:
-            self.bright.remove(child)
-        self.bright.set_visible(bool(screens))
-        self.screen_scales = []
-        if not screens:
-            return
-
-        head = Gtk.Box(spacing=10)
-        self.bright_icon = label(sun_icon(100), "bright-icon")
-        head.append(self.bright_icon)
-        head.append(label("Brightness", "bright-title", xalign=0, hexpand=True))
-        self.bright_pct = label(css="bright-pct", xalign=1)
-        head.append(self.bright_pct)
-        if len(screens) > 1:
-            self.chevron = Gtk.Button(valign=Gtk.Align.CENTER)
-            self.chevron.add_css_class("chevron")
-            self.chevron.set_tooltip_text("Each screen on its own")
-            self.chevron.connect("clicked", lambda *_: self.toggle_drawer())
-            head.append(self.chevron)
-        self.bright.append(head)
-
-        self.master = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 100, 1)
-        self.master.set_hexpand(True)
-        self.master.set_draw_value(False)
-        self.master.set_tooltip_text("All screens")
-        self.master.connect("value-changed", self.on_master)
-        self.bright.append(self.master)
-
-        self.drawer = Gtk.Revealer(transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN,
-                                   transition_duration=220)
-        rows = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6, margin_top=6)
-        for sc in screens:
-            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-            row.add_css_class("screen-row")
-            top = Gtk.Box(spacing=8)
-            top.append(label(I_LAPTOP if sc["key"] == "laptop" else I_MONITOR, "screen-icon"))
-            top.append(label(sc["name"], "screen-name", xalign=0, hexpand=True,
-                             ellipsize=Pango.EllipsizeMode.END))
-            tag = label({"hardware": "DDC", "backlight": "BACKLIGHT", "dimmed": "SOFTWARE"}[sc["how"]], "tag")
-            tag.set_tooltip_text({"hardware": "The monitor itself changes brightness",
-                                  "backlight": "Laptop backlight",
-                                  "dimmed": "This screen can't change its own brightness (no DDC/CI, "
-                                            "e.g. behind a dock), so it is dimmed in software"}[sc["how"]])
-            if sc["how"] == "dimmed":
-                tag.add_css_class("soft")
-            top.append(tag)
-            pct = label(f"{sc['value']}%", "screen-pct", xalign=1)
-            top.append(pct)
-            row.append(top)
-            low = 10 if sc["how"] == "dimmed" else 1
-            scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, low, 100, 1)
-            scale.set_hexpand(True)
-            scale.set_draw_value(False)
-            scale.set_value(sc["value"])
-            scale.connect("value-changed", self.on_screen, sc, pct)
-            row.append(scale)
-            rows.append(row)
-            self.screen_scales.append((sc, scale, pct, low))
-        self.drawer.set_child(rows)
-        self.drawer.set_reveal_child(self.bright_open and len(screens) > 1)
-        self.bright.append(self.drawer)
-        self.sync_master()
-        self.update_chevron()
-
-    def update_chevron(self):
-        if len(self.screen_scales) < 2:
-            return
-        n = len(self.screen_scales)
-        self.chevron.set_label(f"{n} screens  {I_UP if self.bright_open else I_DOWN}")
-        (self.chevron.add_css_class if self.bright_open else self.chevron.remove_css_class)("open")
-
-    def toggle_drawer(self):
-        self.bright_open = not self.bright_open
-        self.drawer.set_reveal_child(self.bright_open)
-        self.update_chevron()
-
-    def sync_master(self):
-        """Main slider shows the average of all screens."""
-        values = [scale.get_value() for _sc, scale, _pct, _low in self.screen_scales]
-        avg = round(sum(values) / len(values)) if values else 100
-        self.updating = True
-        self.master.set_value(avg)
-        self.updating = False
-        self.bright_pct.set_label(f"{avg}%")
-        self.bright_icon.set_label(sun_icon(avg))
-
-    def on_master(self, scale):
-        if self.updating:
-            return
-        value = int(scale.get_value())
-        self.bright_pct.set_label(f"{value}%")
-        self.bright_icon.set_label(sun_icon(value))
-        self.updating = True
-        for sc, s, pct, low in self.screen_scales:
-            v = max(low, value)
-            s.set_value(v)
-            pct.set_label(f"{v}%")
-            self.on_brightness(sc, v)
-        self.updating = False
-
-    def on_screen(self, scale, sc, pct):
-        if self.updating:
-            return
-        value = int(scale.get_value())
-        pct.set_label(f"{value}%")
-        self.on_brightness(sc, value)
-        self.sync_master()
-
-    def on_brightness(self, sc, value):
-        if sc["key"] == "laptop":
-            spawn("brightnessctl", "-q", "-c", "backlight", "set", f"{value}%")
-            return
-        if sc["key"].startswith("dim:"):
-            output = sc["key"][4:]
-            try:
-                os.makedirs(DIM_DIR, exist_ok=True)
-                with open(os.path.join(DIM_DIR, output), "w") as f:
-                    f.write(str(value))
-            except OSError:
-                return
-            if value < 100:   # does nothing if this screen's dimmer is already running
-                spawn(sys.executable, os.path.join(HERE, "dim-screen.py"), output)
-            return
-        # a monitor takes ~0.1 s per change: send only the latest value, one at a time
-        bus = sc["key"].split(":")[1]
-        with self.ddc_lock:
-            self.ddc_pending[bus] = round(value * sc["max"] / 100)
-            if bus in self.ddc_busy:
-                return
-            self.ddc_busy.add(bus)
-
-        def work():
-            while True:
-                with self.ddc_lock:
-                    target = self.ddc_pending.pop(bus, None)
-                    if target is None:
-                        self.ddc_busy.discard(bus)
-                        return
-                run("ddcutil", "--bus", bus, "--noverify", "setvcp", "10", str(target), timeout=10)
-        threading.Thread(target=work, daemon=True).start()
-
-    # ----- misc --------------------------------------------------------------
     def on_key(self, _ctl, keyval, _code, _state):
         if keyval == Gdk.KEY_Escape:
             self.win.close()

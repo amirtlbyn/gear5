@@ -2,22 +2,31 @@
 """
 Settings (SUPER+I, or the button in the control center), in the theme's colors.
 
-  settings.py [PAGE]      open on that page: theme, wallpaper, displays, wifi, bluetooth,
-                          sound, power, notifications, keyboard, look
+  settings.py [PAGE]      open on that page: theme, wallpaper, fonts, displays, wifi,
+                          bluetooth, sound, power, battery, notifications, keyboard, shortcuts, look
   settings.py theme-new           open the theme editor for a new theme
   settings.py theme-edit-ID       open the theme editor for a custom theme
 
 - Theme: pick a Straw Hat (or Summer night); everything switches at once. A "New
   theme" card and, on a made theme, Edit, Rename and Delete open the editor below.
+  A GIF section holds the bar GIF choices, and each card has its own GIF
+  (theme_gif.py).
 - Wallpaper: one image for every theme, copied into ~/.config/hypr/wallpapers/.
 - Displays, Wi-Fi, Bluetooth, Sound, Power & sleep: the bar popups' own panels
   (see panel.py), so every setting is here and nothing opens another app.
+  Power & sleep stacks them: battery and power mode, brightness, then the
+  power panel (idle behavior, and lock / sleep / reboot / power off).
+- Battery: charge limits (presets, stop/start thresholds, charge speed), kept
+  in user-settings.json and enforced by the battery-limits service (battery.py).
 - Notifications: Do Not Disturb and Clear all (swaync).
-- Keyboard & touchpad, Look & behavior: layouts, touchpad, gaps, animations.
+- Shortcuts: the desktop's keyboard shortcuts (from hyprland.lua, see shortcuts.py). Click a
+  key button and press the new keys, turn a shortcut Off, or Reset it. Kept in user-settings.json.
+- Keyboard & touchpad, Look & behavior: layouts, touchpad, gaps, animations, the bar strip.
   Kept in ~/.config/hypr/user-settings.json (see settings_store.py).
 
 A normal window, not a popup: the file chooser has to be able to open over it.
 """
+import json
 import math
 import os
 import shutil
@@ -35,10 +44,13 @@ try:
     gi.require_version("Gtk4LayerShell", "1.0")  # popup_backdrop imports it
 except ValueError:
     pass
+import fonts  # noqa: E402
 import palette  # noqa: E402
 import panel  # noqa: E402
 import popup_backdrop  # noqa: E402
 import settings_store as store  # noqa: E402
+import shortcuts  # noqa: E402
+import theme_gif  # noqa: E402
 import theme_maker  # noqa: E402
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango, PangoCairo  # noqa: E402
 
@@ -46,28 +58,59 @@ HYPRPICKER = shutil.which("hyprpicker")  # the eyedropper button hides without i
 
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 THEME_PY = os.path.join(SCRIPTS, "theme.py")
+THEME_GIF_PY = os.path.join(SCRIPTS, "theme_gif.py")
 PAGES = [
     ("theme", "\U000f03d8", "Theme"),
     ("wallpaper", "\U000f02e9", "Wallpaper"),
+    ("fonts", "\U000f0289", "Fonts"),
     ("displays", "\U000f0379", "Displays"),
     ("wifi", "\U000f05a9", "Wi-Fi"),
     ("bluetooth", "\U000f00af", "Bluetooth"),
     ("sound", "\U000f057e", "Sound"),
     ("power", "\U000f0425", "Power & sleep"),
+    ("battery", "\U000f0079", "Battery"),
     ("notifications", "\U000f009a", "Notifications"),
     ("keyboard", "\U000f030c", "Keyboard & touchpad"),
+    ("shortcuts", "\U000f0313", "Shortcuts"),
     ("look", "\U000f0568", "Look & behavior"),
 ]
 SECTIONS = {"theme": "APPEARANCE", "displays": "SYSTEM", "keyboard": "INPUT & DESKTOP"}  # heading before
-OLD_PAGES = {"input": "keyboard"}  # page names of earlier versions
-PANELS = {  # page -> (popup, panel class): the bar popups' own panels, see panel.py
-    "displays": ("displays", "DisplaysPanel"),
-    "wifi": ("wifi-menu", "WifiPanel"),
-    "bluetooth": ("control-center", "BluetoothPanel"),
-    "sound": ("volume-popup", "VolumePanel"),
-    "power": ("power-popup", "PowerPanel"),
+OLD_PAGES = {"input": "keyboard", "lockscreen": "theme", "stickers": "theme"}  # page names of earlier versions
+PANELS = {  # page -> [(popup, panel class), …]: the bar popups' own panels, see panel.py
+    "displays": [("displays", "DisplaysPanel")],
+    "wifi": [("wifi-menu", "WifiPanel")],
+    "bluetooth": [("control-center", "BluetoothPanel")],
+    "sound": [("volume-popup", "VolumePanel")],
+    "power": [
+        ("power-popup", "PowerPanel"),
+    ],
+    "battery": [("battery-page", "BatteryLimitsPanel")],
+}
+SHORTCUT_GROUPS = {  # the part of a shortcut's name before the dot -> its heading
+    "apps": "APPS & MENUS",
+    "windows": "WINDOWS",
+    "desks": "DESKS",
+    "shots": "SCREENSHOTS",
+    "system": "SYSTEM",
+}
+MOD_MASKS = (  # Hyprland's name of each modifier a key press can carry
+    ("SUPER", Gdk.ModifierType.SUPER_MASK),
+    ("CTRL", Gdk.ModifierType.CONTROL_MASK),
+    ("ALT", Gdk.ModifierType.ALT_MASK),
+    ("SHIFT", Gdk.ModifierType.SHIFT_MASK),
+)
+MODIFIER_KEYS = {  # pressing one of these alone records nothing yet
+    getattr(Gdk, f"KEY_{n}")
+    for n in (
+        "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R", "Super_L", "Super_R",
+        "Meta_L", "Meta_R", "Hyper_L", "Hyper_R", "ISO_Level3_Shift", "Caps_Lock", "Num_Lock",
+    )
 }
 IMAGE_TYPES = ("image/png", "image/jpeg", "image/webp")
+BAR_GIF_NAMES = (("always", "Always"), ("ac", "Only on AC power"), ("switch", "Only after a theme switch (5 s)"))
+NIGHT_MODE_NAMES = (("off", "Off"), ("sunset", "Follow sunset"), ("schedule", "Schedule"))
+NIGHT_TIMES = [f"{h:02d}:{m:02d}" for h in range(24) for m in (0, 30)]  # the From / to choices
+GIF_TYPES = ("image/gif",)
 
 WINDOW_CSS = """
 window.settings { background: @bg_dim; color: @fg; }
@@ -105,8 +148,10 @@ button.card.current { box-shadow: inset 0 0 0 2px @green; }
 button.act, menubutton.act { background: @bg2; color: @fg; border: none; box-shadow: none;
              border-radius: 12px; border-bottom: 3px solid @edge_deep; padding: 6px 14px; font-weight: bold; }
 button.act:hover, menubutton.act:hover { background: @bg3; }
+button.act:active, menubutton.act:active { background: @bg3; border-bottom-width: 0; padding-top: 9px; }
 button.act.primary, menubutton.act.primary { background: @green; color: @on_accent;
              border-bottom-color: @green_edge; }
+button.act.primary:active { background: @green_edge; border-bottom-width: 0; padding-top: 9px; }
 button.act:disabled, menubutton.act:disabled { opacity: 0.4; }
 button.tile { background: @bg0; color: @fg; border: none; box-shadow: none; border-radius: 16px;
               border-bottom: 4px solid @edge_deep; padding: 14px; }
@@ -159,6 +204,16 @@ def swaync(*args):
         return subprocess.run(["swaync-client", *args], capture_output=True, text=True, timeout=3).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         return ""
+
+
+def first_frame(path):
+    """A GIF's first picture as a texture, or None when it cannot be read.
+    Gtk.Picture.new_for_filename loads a GIF but draws nothing (GTK 4.22), so the
+    GIF is decoded here and the picture gets the texture."""
+    try:
+        return Gdk.Texture.new_from_filename(path)
+    except GLib.Error:
+        return None
 
 
 def swatch(colors, names=("bg0", "fg", "green", "blue", "red", "yellow")):
@@ -284,7 +339,9 @@ def theme_preview(colors):
         layout = PangoCairo.create_layout(cr)
         layout.set_text(s, -1)
         layout.set_font_description(
-            Pango.FontDescription.from_string("JetBrainsMono Nerd Font" + (" Bold" if bold else "") + " 11")
+            Pango.FontDescription.from_string(
+                fonts.pango("JetBrainsMono Nerd Font" + (" Bold" if bold else "") + " 11")
+            )
         )
         cr.move_to(x, y)
         PangoCairo.show_layout(cr, layout)
@@ -313,9 +370,15 @@ class Settings(Gtk.Application):
         self.win = None
         self.provider = None
         self.page = "theme"
+        self.gif_pictures = {}  # theme id -> the Gtk.Picture of its card (theme_page)
+        self.gif_timer = None  # the one GLib timer of the playing card
+        self.gif_playing = None  # the theme id whose card plays
         self.busy = False  # a theme switch, wallpaper copy or theme save is running
-        self.panels = {}  # page -> (panel, its module, its CSS provider), built when first shown
+        self.panels = {}  # page -> [(panel, its module, its CSS provider)], built when first shown
+        self.prefetched = set()  # the panel pages prefetch_panel has tried
         self.theme = None  # the theme the window is drawn in
+        self.recording = None  # the shortcut being recorded: (name, its key button, the button's label, key controller)
+        self.shortcut_errors = {}  # shortcut name -> the label under its row
 
     # ----- lifecycle -----------------------------------------------------------
     def do_command_line(self, cmd):
@@ -334,7 +397,7 @@ class Settings(Gtk.Application):
         if "--hidden" not in args:  # --hidden: start in the background (tests)
             if self.theme != palette.current():  # switched from the bar or a terminal
                 self.apply_css()
-                self.rebuild("theme")
+                self.mark_theme(palette.current())
                 self.rebuild("wallpaper")
             self.win.present()
             if not was_shown:  # a shown window: show_page already did it
@@ -342,9 +405,10 @@ class Settings(Gtk.Application):
         return 0
 
     def do_shutdown(self):
-        for p, _mod, _provider in self.panels.values():
-            if hasattr(p, "stop"):  # e.g. Sound's pactl watcher, a Bluetooth scan
-                p.stop()
+        for panels in self.panels.values():
+            for p, _mod, _provider in panels:
+                if hasattr(p, "stop"):  # e.g. Sound's pactl watcher, a Bluetooth scan
+                    p.stop()
         Gtk.Application.do_shutdown(self)
 
     def apply_css(self):
@@ -355,14 +419,25 @@ class Settings(Gtk.Application):
             )
         self.theme = palette.current()
         colors = palette.load(self.theme)
-        self.provider.load_from_string(
-            "".join(f"@define-color {k} {v};\n" for k, v in colors.items())
-            + WINDOW_CSS
-            + panel.scope(PAGE_CSS, "own")
-        )
-        for key, (_panel, mod, provider) in self.panels.items():
-            mod.P = palette.load(self.theme, **mod.ALIASES)  # colors it draws with itself
-            provider.load_from_string(panel.scoped_css(mod.STYLE, mod.P, "panel-" + key))
+        try:
+            self.provider.load_from_string(
+                fonts.swap(
+                    "".join(f"@define-color {k} {v};\n" for k, v in colors.items())
+                    + WINDOW_CSS
+                    + panel.scope(PAGE_CSS, "own")
+                )
+            )
+        except Exception:  # noqa: BLE001 - one bad style must not blank every page
+            traceback.print_exc()
+        for key, panels in self.panels.items():
+            for _panel, mod, provider in panels:
+                mod.P = palette.load(self.theme, **mod.ALIASES)  # colors it draws with itself
+                try:
+                    provider.load_from_string(
+                        fonts.swap(panel.scoped_css(mod.STYLE, mod.P, "panel-" + key))
+                    )
+                except Exception:  # noqa: BLE001 - keep the panel's last good style
+                    traceback.print_exc()
 
     def build(self):
         popup_backdrop.smooth_text()
@@ -370,6 +445,7 @@ class Settings(Gtk.Application):
         win = Gtk.ApplicationWindow(application=self, title="Settings", default_width=860, default_height=640)
         win.add_css_class("settings")
         win.connect("close-request", self.on_close)
+        win.connect("notify::is-active", lambda w, _p: w.is_active() or self.shortcut_stop())
         self.win = win
 
         side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
@@ -389,8 +465,10 @@ class Settings(Gtk.Application):
         self.pages = dict(
             theme=self.theme_page,
             wallpaper=self.wallpaper_page,
+            fonts=self.fonts_page,
             notifications=self.notifications_page,
             keyboard=self.keyboard_page,
+            shortcuts=self.shortcuts_page,
             look=self.look_page,
         )
         for key, _icon, _name in PAGES:
@@ -406,29 +484,52 @@ class Settings(Gtk.Application):
         keys.connect("key-pressed", self.on_key)
         win.add_controller(keys)
         self.show_page(self.page)
+        GLib.idle_add(self.prefetch_panel)
 
     def scrolled(self, child):
         sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
+        sw.set_child(self.own(child))
+        return sw
+
+    def own(self, child):
         wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         wrap.add_css_class("own")
         wrap.append(child)
-        sw.set_child(wrap)
-        return sw
+        return wrap
 
     def rebuild(self, key):
-        """Draw a page again (after a theme or wallpaper change)."""
-        old = self.stack.get_child_by_name(key)
-        self.stack.remove(old)
-        self.stack.add_named(self.scrolled(self.pages[key]()), key)
-        if self.page == key:
-            self.stack.set_visible_child_name(key)
+        """Draw a page again (after a theme's save, rename or delete, or a
+        wallpaper change) in the same ScrolledWindow, keeping its scroll: once
+        GTK has laid out the new page, the scroll goes back to where it was,
+        clamped to the new height, one time."""
+        sw = self.stack.get_child_by_name(key)
+        adj = sw.get_vadjustment()
+        pos = adj.get_value()
+        sw.set_child(self.own(self.pages[key]()))
+        if pos <= 0:
+            return
+
+        def when_laid_out(_adj):
+            bottom = adj.get_upper() - adj.get_page_size()
+            if adj.get_upper() <= 0:
+                return  # not laid out yet
+            adj.disconnect(handler_id)
+            adj.set_value(min(pos, max(0, bottom)))
+
+        handler_id = adj.connect("changed", when_laid_out)
 
     def show_page(self, key):
+        self.shortcut_stop()
         if key != self.page:
             self.panel_hidden(self.page)
         self.page = key
+        if key != "theme":
+            self.gif_flip_stop()
         if key in PANELS and key not in self.panels:
-            self.build_panel(key)
+            try:
+                self.build_panel(key)
+            except Exception:  # noqa: BLE001 - show what built, never a blank page
+                traceback.print_exc()
         self.stack.set_visible_child_name(key)
         for k, b in self.side_btns.items():
             (b.add_css_class if k == key else b.remove_css_class)("active")
@@ -436,37 +537,64 @@ class Settings(Gtk.Application):
             self.page_shown(key)
 
     def on_close(self, win):
+        self.shortcut_stop()
+        self.gif_flip_stop()
         self.panel_hidden(self.page)
         win.set_visible(False)
         return True
 
     # ----- panels (the bar popups' own panels, see panel.py) ---------------------------
     def build_panel(self, key):
-        name, cls = PANELS[key]
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         page.add_css_class("panel-page")
         page.add_css_class("panel-" + key)
-        try:
-            mod = panel.load(name)
-            p = getattr(mod, cls)(PageHost(self, key))
-        except Exception as e:  # noqa: BLE001 - one broken panel must not take Settings down
-            traceback.print_exc()
-            page.append(label(f"This page couldn't start: {e}", "panel-error", xalign=0, wrap=True))
-        else:
+        built = []  # the panels that started; one that fails leaves its error row, the rest go on
+        for name, cls in PANELS[key]:
+            try:
+                mod = panel.load(name)
+                p = getattr(mod, cls)(PageHost(self, key))
+            except Exception as e:  # noqa: BLE001 - one broken panel must not take Settings down
+                traceback.print_exc()
+                page.append(label(f"This page couldn't start: {e}", "panel-error", xalign=0, wrap=True))
+                continue
             provider = Gtk.CssProvider()
             Gtk.StyleContext.add_provider_for_display(
                 Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER
             )
-            self.panels[key] = (p, mod, provider)
-            self.apply_css()
+            built.append((p, mod, provider))
             page.append(p.root)
+        if key == "displays":  # Settings only: the Displays popup has no night light
+            page.append(self.night_light_section())
+        self.panels[key] = built
+        self.apply_css()
         self.stack.remove(self.stack.get_child_by_name(key))
         sw = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
         sw.set_child(page)
         self.stack.add_named(sw, key)
 
+    def prefetch_panel(self):
+        """Build the next panel page that is not built yet and let it read the
+        system once, while nobody looks: a page opened later shows its data at
+        once, as the popups (read at startup, while hidden) do. One page per
+        idle call, so the window stays responsive."""
+        key = next((k for k in PANELS if k not in self.panels and k not in self.prefetched), None)
+        if key is None:
+            return False
+        self.prefetched.add(key)
+        try:
+            self.build_panel(key)
+        except Exception:  # noqa: BLE001 - show_page tries again when it is opened
+            traceback.print_exc()
+            return True
+        self.panel_call(key, "on_show")
+        if not PageHost(self, key).is_shown():
+            self.panel_call(key, "on_hide")
+        return True
+
     def page_shown(self, key):
         """The page just came into view: show what is true now."""
+        if key == "theme":
+            self.gif_flip_start()
         if key in self.panels:
             self.panel_call(key, "on_show")
         elif key == "notifications":
@@ -477,21 +605,30 @@ class Settings(Gtk.Application):
             self.panel_call(key, "on_hide")
 
     def panel_call(self, key, method, *args):
-        """A panel's method; an error in it is printed, and Settings keeps running."""
-        try:
-            return getattr(self.panels[key][0], method)(*args)
-        except Exception:  # noqa: BLE001 - one broken panel must not take Settings down
-            traceback.print_exc()
-            return None
+        """A panel's method; an error in it is printed, and Settings keeps running.
+        The first panel that answers with True wins (e.g. Esc closes an open row)."""
+        answer = None
+        for p, _mod, _provider in self.panels.get(key, ()):
+            fn = getattr(p, method, None)
+            if fn is None:
+                continue
+            try:
+                result = fn(*args)
+            except Exception:  # noqa: BLE001 - one broken panel must not take Settings down
+                traceback.print_exc()
+                continue
+            if answer is None and result is True:
+                answer = True
+                break  # a panel handled it; the rest of the page need not hear it
+        return answer
 
     def on_key(self, _ctl, keyval, _code, state):
-        p = self.panels.get(self.page, (None,))[0]
-        if keyval == Gdk.KEY_Escape and hasattr(p, "on_escape") and self.panel_call(self.page, "on_escape"):
+        if keyval == Gdk.KEY_Escape and self.panel_call(self.page, "on_escape"):
             return True  # e.g. Wi-Fi closes its open row first
         if keyval == Gdk.KEY_Escape or (state & Gdk.ModifierType.CONTROL_MASK and keyval == Gdk.KEY_w):
             self.win.close()
             return True
-        if hasattr(p, "on_key") and keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):  # Tab moves the focus
+        if keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):  # Tab moves the focus
             return bool(self.panel_call(self.page, "on_key", keyval))  # e.g. Enter applies on Displays
         return False
 
@@ -509,7 +646,15 @@ class Settings(Gtk.Application):
             "Pick a character. The bar, popups, notifications, window borders, "
             "lock screen and wallpaper all switch together.",
         )
+        if getattr(self, "gif_error", None):
+            box.append(label(self.gif_error, "error", xalign=0, wrap=True))
+            self.gif_error = None
+        self.gif_section(box)
         current = palette.current()
+        self.gif_flip_stop(restore=False)  # this page replaces the one whose card was playing
+        self.gif_pictures = {}  # theme id -> the Gtk.Picture of its card
+        self.theme_cards = {}  # theme id -> (its card button, the box its "in use" badge goes in)
+        self.theme_badge = label("in use", "badge")
         flow = Gtk.FlowBox(
             selection_mode=Gtk.SelectionMode.NONE,
             homogeneous=True,
@@ -533,15 +678,20 @@ class Settings(Gtk.Application):
             custom = bool((palette.read(tid) or {}).get("custom"))
             b = Gtk.Button(can_focus=True)
             b.add_css_class("card")
-            if tid == current:
-                b.add_css_class("current")
             inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             inner.append(swatch(colors))
+            path = theme_gif.gif(tid)
+            if path:  # the first picture: a GIF that plays here would cost 11 players
+                picture = Gtk.Picture.new_for_paintable(first_frame(path))
+                picture.set_size_request(-1, 90)
+                self.gif_pictures[tid] = picture
+                inner.append(picture)
+            else:
+                inner.append(label("No GIF", "char", xalign=0))
             top = Gtk.Box(spacing=6)
             top.append(label(name, "name", xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END))
-            if tid == current:
-                top.append(label("in use", "badge"))
             inner.append(top)
+            self.theme_cards[tid] = (b, top)
             inner.append(
                 label(
                     character or ("Your own theme" if custom else "The original Everforest look"),
@@ -552,22 +702,114 @@ class Settings(Gtk.Application):
             )
             b.set_child(inner)
             b.connect("clicked", lambda _b, t=tid: self.pick_theme(t))
+            wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            wrap.append(b)
+            actions = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
             if custom:
-                wrap = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-                wrap.append(b)
-                actions = Gtk.Box(spacing=6, halign=Gtk.Align.CENTER)
                 edit_btn = Gtk.Button(label="Edit")
                 edit_btn.add_css_class("act")
                 edit_btn.connect("clicked", lambda _b, t=tid: self.open_editor(t))
                 actions.append(edit_btn)
                 actions.append(self.rename_button(tid, name))
                 actions.append(self.delete_button(tid, name))
-                wrap.append(actions)
-                flow.append(wrap)
-            else:
-                flow.append(b)
+            choose = Gtk.Button(label="GIF…")
+            choose.add_css_class("act")
+            choose.connect(
+                "clicked",
+                lambda _b, t=tid, n=name: self.choose_picture(
+                    f"GIF for {n}", lambda p, t=t: self.set_theme_gif(t, p), GIF_TYPES, "GIF"
+                ),
+            )
+            remove = Gtk.Button(label="Remove", sensitive=bool(path))
+            remove.add_css_class("act")
+            remove.connect("clicked", lambda _b, t=tid: self.set_theme_gif(t, None))
+            actions.append(choose)
+            actions.append(remove)
+            wrap.append(actions)
+            flow.append(wrap)
         box.append(flow)
+        self.mark_theme(current)
         return box
+
+    def gif_section(self, box):
+        """GIFT-9: the GIF choices for every theme, above the cards."""
+        s = store.load()
+        box.append(self.switch_row("GIF on the bar", "The theme's GIF, left of the desks. A theme with no GIF shows nothing. Click it to come here.", s, "gif_bar"))
+        row, _text = self.row("Bar GIF plays", "When the GIF on the bar moves. It rests on its first picture otherwise.")
+        bar_gif = Gtk.DropDown.new_from_strings([n for _k, n in BAR_GIF_NAMES])
+        bar_gif.set_valign(Gtk.Align.CENTER)
+        bar_gif.set_selected([k for k, _n in BAR_GIF_NAMES].index(s["bar_gif"]))
+        bar_gif.connect("notify::selected", lambda d, _p: self.save(bar_gif=BAR_GIF_NAMES[d.get_selected()][0]))
+        row.append(bar_gif)
+        box.append(row)
+        box.append(self.switch_row("GIF on theme switch", "A theme's GIF pops up under the bar for about two seconds.", s, "gif_switch"))
+
+    def set_theme_gif(self, theme_id, source):
+        """GIFT-6: copy source in as the theme's GIF (None removes it), then rewrite
+        the lock screen file; a refusal is shown on the page."""
+        if self.busy:
+            return
+        self.busy = True
+        self.gif_flip_stop()  # the frames are made again while the GIF is copied
+
+        def done(result):
+            self.busy = False
+            if isinstance(result, Exception):
+                self.gif_error = f"Couldn't use that GIF: {result}"
+            self.rebuild("theme")
+
+        def work():
+            theme_gif.set_gif(theme_id, source)
+            subprocess.run([THEME_PY, "lock"], capture_output=True, timeout=20, check=False)
+
+        in_background(work, done)
+
+    def mark_theme(self, tid):
+        """Move the "in use" badge and the current style to tid's card, in place:
+        the page is not rebuilt, so its scroll stays where it is."""
+        parent = self.theme_badge.get_parent()
+        if parent is not None:
+            parent.remove(self.theme_badge)
+        for t, (card, top) in self.theme_cards.items():
+            (card.add_css_class if t == tid else card.remove_css_class)("current")
+            if t == tid:
+                top.append(self.theme_badge)
+        self.gif_flip_start()  # the playing card moves with the badge
+
+    def gif_flip_start(self):
+        """GIFT-6: the card of the theme in use plays the frames the lock screen uses
+        (gif/current/lock, times in frames.json), on one GLib timer at a time, only
+        while the Theme page is shown in a visible window. The other cards keep the
+        first picture. No GIF, or no frames: nothing plays."""
+        self.gif_flip_stop()
+        picture = self.gif_pictures.get(palette.current())
+        if picture is None or self.page != "theme" or not self.win.get_visible():
+            return
+        root = os.path.join(theme_gif.gif_dir(), "current")
+        try:
+            with open(os.path.join(root, "frames.json")) as f:
+                ms = json.load(f)["ms"]
+        except (OSError, ValueError, KeyError):
+            return
+        if len(ms) < 2:
+            return
+        self.gif_playing = palette.current()
+
+        def step(i):
+            picture.set_filename(os.path.join(root, "lock", f"{i:03d}.png"))
+            self.gif_timer = GLib.timeout_add(ms[i], lambda: (step((i + 1) % len(ms)), False)[1])
+
+        step(0)
+
+    def gif_flip_stop(self, restore=True):
+        """Stop the timer, and put the playing card back to its first picture."""
+        if self.gif_timer:
+            GLib.source_remove(self.gif_timer)
+            self.gif_timer = None
+        playing, self.gif_playing = self.gif_playing, None
+        picture = self.gif_pictures.get(playing)
+        if restore and picture is not None and theme_gif.gif(playing):
+            picture.set_paintable(first_frame(theme_gif.gif(playing)))
 
     def rename_button(self, theme_id, name):
         """A button whose popover renames a custom theme in place."""
@@ -667,11 +909,12 @@ class Settings(Gtk.Application):
         if self.busy or tid == palette.current():
             return  # one switch at a time: the last click must be the theme you get
         self.busy = True
+        self.gif_flip_stop()  # the frames are made again while the theme applies
 
         def done(_r):
             self.busy = False
             self.apply_css()
-            self.rebuild("theme")
+            self.mark_theme(palette.current())
             self.rebuild("wallpaper")
 
         in_background(lambda: subprocess.run([THEME_PY, "apply", tid], capture_output=True, timeout=20), done)
@@ -897,12 +1140,16 @@ class Settings(Gtk.Application):
         return box
 
     def choose_wallpaper(self):
-        images = Gtk.FileFilter(name="Images (PNG, JPEG, WebP)")
-        for mime in IMAGE_TYPES:
+        self.choose_picture("Wallpaper", self.set_wallpaper)
+
+    def choose_picture(self, title, use, types=IMAGE_TYPES, kind="Images (PNG, JPEG, WebP)"):
+        """A file dialog for one picture of the given types; use(path) gets it."""
+        images = Gtk.FileFilter(name=kind)
+        for mime in types:
             images.add_mime_type(mime)
         filters = Gio.ListStore.new(Gtk.FileFilter)
         filters.append(images)
-        dialog = Gtk.FileDialog(title="Wallpaper", filters=filters, default_filter=images)
+        dialog = Gtk.FileDialog(title=title, filters=filters, default_filter=images)
         pictures = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_PICTURES)
         if pictures and os.path.isdir(pictures):
             dialog.set_initial_folder(Gio.File.new_for_path(pictures))
@@ -913,7 +1160,7 @@ class Settings(Gtk.Application):
             except GLib.Error:
                 return  # cancelled
             if f and f.get_path():
-                self.set_wallpaper(f.get_path())
+                use(f.get_path())
 
         dialog.open(self.win, None, picked)
 
@@ -933,6 +1180,110 @@ class Settings(Gtk.Application):
             if isinstance(result, Exception):
                 self.wall_error = f"Couldn't use that picture: {result}"
             self.rebuild("wallpaper")
+
+        in_background(work, done)
+
+    # ----- fonts ---------------------------------------------------------------------
+    def fonts_page(self):
+        """The desktop's two fonts. Apply writes them into the generated files
+        (theme.py write), reloads swaync, restarts the popups and restyles this
+        window, so every surface picks them up at once."""
+        box = self.page_box(
+            "Fonts",
+            "The English (mono) and the Persian font of the bar, popups, notifications, "
+            "lock screen and kitty. Saved in ~/.config/hypr/user-settings.json.",
+        )
+        s = store.load()
+        self.font_lists = dict(en=self.installed_fonts(mono=True), fa=self.installed_fonts())
+        self.font_en_choice = self.font_chooser(self.font_lists["en"], s["font_en"])
+        box.append(self.font_row("English font", "The mono family, used first everywhere.",
+                                 self.font_en_choice))
+        self.font_fa_choice = self.font_chooser(self.font_lists["fa"], s["font_fa"])
+        box.append(self.font_row("Persian font", "The family that draws Persian text.",
+                                 self.font_fa_choice))
+
+        box.append(label("SAMPLE", "section", xalign=0))
+        self.font_sample = label(xalign=0)
+        self.font_sample.add_css_class("row")
+        box.append(self.font_sample)
+        for choice in (self.font_en_choice, self.font_fa_choice):
+            choice.connect("notify::selected", lambda *_: self.update_font_sample())
+        self.update_font_sample()
+
+        self.font_error = label("", "error", xalign=0, wrap=True, visible=False)
+        box.append(self.font_error)
+        self.font_apply_btn = Gtk.Button(label="Apply")
+        self.font_apply_btn.add_css_class("act")
+        self.font_apply_btn.add_css_class("primary")
+        self.font_apply_btn.connect("clicked", lambda *_: self.apply_fonts())
+        acts = Gtk.Box(spacing=8, margin_top=8, halign=Gtk.Align.END)
+        acts.append(self.font_apply_btn)
+        box.append(acts)
+        return box
+
+    def installed_fonts(self, mono=False):
+        """The font families this machine has, alphabetically; mono ones only
+        when asked (the English font of a desktop is its mono face)."""
+        try:
+            families = PangoCairo.FontMap.get_default().list_families()
+            names = sorted({f.get_name() for f in families if not mono or f.is_monospace()})
+        except Exception:  # noqa: BLE001 - no font map (a test box): just the default
+            names = []
+        return names or [fonts.EN]
+
+    def font_chooser(self, names, current):
+        drop = Gtk.DropDown.new_from_strings(names)
+        drop.set_selected(names.index(current) if current in names else 0)
+        return drop
+
+    def font_row(self, title, desc, choice):
+        row, _text = self.row(title, desc)
+        choice.set_valign(Gtk.Align.CENTER)
+        row.append(choice)
+        return row
+
+    def chosen_fonts(self):
+        return (self.font_lists["en"][self.font_en_choice.get_selected()],
+                self.font_lists["fa"][self.font_fa_choice.get_selected()])
+
+    def update_font_sample(self):
+        en, fa = self.chosen_fonts()
+        self.font_sample.set_markup(
+            f'<span font_family="{GLib.markup_escape_text(en, -1)}" weight="bold" size="14000">'
+            f"12:34 Settings</span>    "
+            f'<span font_family="{GLib.markup_escape_text(fa, -1)}" size="14000">نمونه ۱۲:۳۴</span>'
+        )
+
+    def apply_fonts(self):
+        if self.busy:
+            return
+        en, fa = self.chosen_fonts()
+        self.busy = True
+        self.font_apply_btn.set_label("Applying…")
+        self.font_apply_btn.set_sensitive(False)
+
+        def work():
+            store.save(dict(store.load(), font_en=en, font_fa=fa))
+            return subprocess.run([THEME_PY, "write"], capture_output=True, timeout=30).returncode
+
+        def done(result):
+            self.busy = False
+            if isinstance(result, Exception) or result != 0:
+                self.font_error.set_label(f"Couldn't apply the fonts: {result}")
+                self.font_error.set_visible(True)
+                self.font_apply_btn.set_label("Apply")
+                self.font_apply_btn.set_sensitive(True)
+                return
+            self.font_error.set_visible(False)
+            swaync("--reload-css")
+            spawn([os.path.join(SCRIPTS, "popup.sh"), "--restart"])  # they rebuild their CSS
+            self.apply_css()  # this window, right now
+            self.font_apply_btn.set_label("Applied ✓")
+            GLib.timeout_add_seconds(
+                2,
+                lambda: (self.font_apply_btn.set_label("Apply"),
+                         self.font_apply_btn.set_sensitive(True), False)[2],
+            )
 
         in_background(work, done)
 
@@ -1007,6 +1358,122 @@ class Settings(Gtk.Application):
         box.append(self.switch_row("Tap to click", "A light tap is a click.", s, "tap_to_click"))
         return box
 
+    # ----- shortcuts (KEYS) ----------------------------------------------------------------
+    def shortcut_rows(self):
+        """KEYS-1: [(name, label, group, keys now, default keys)] — the user's keys, else the default; "" is Off."""
+        mine = store.load()["shortcuts"]
+        try:
+            found = shortcuts.catalog()
+        except OSError:  # hyprland.lua is not installed: an empty page, not a crash
+            return []
+        return [(name, label, group, mine.get(name, keys), keys) for name, label, group, keys in found]
+
+    def shortcuts_page(self):
+        box = self.page_box(
+            "Shortcuts",
+            "Click the keys of a shortcut, then press the new keys. Saved in "
+            "~/.config/hypr/user-settings.json and applied at once.",
+        )
+        self.error = label("", "error", xalign=0, wrap=True, visible=False)
+        box.append(self.error)
+        mine = store.load()["shortcuts"]
+        reset_all = Gtk.Button(label="Reset all", halign=Gtk.Align.START, sensitive=bool(mine))
+        reset_all.add_css_class("act")
+        reset_all.connect("clicked", lambda *_: self.shortcut_reset_all())
+        box.append(reset_all)
+        self.shortcut_errors = {}
+        rows = self.shortcut_rows()
+        for group, heading in SHORTCUT_GROUPS.items():
+            members = [r for r in rows if r[2] == group]
+            if not members:
+                continue
+            box.append(label(heading, "section", xalign=0))
+            for name, title, _group, keys, default in members:
+                row, text = self.row(title, f"Default: {default}")
+                self.shortcut_errors[name] = label("", "error", xalign=0, wrap=True, visible=False)
+                text.append(self.shortcut_errors[name])
+                key_btn = Gtk.Button(label=shortcuts.keys_label(keys), valign=Gtk.Align.CENTER)
+                key_btn.add_css_class("act")
+                key_btn.connect("clicked", lambda b, n=name: self.shortcut_start(n, b))
+                off_btn = Gtk.Button(label="Off", valign=Gtk.Align.CENTER, sensitive=keys != "")
+                off_btn.connect("clicked", lambda _b, n=name: self.shortcut_set(n, ""))
+                reset_btn = Gtk.Button(label="Reset", valign=Gtk.Align.CENTER, sensitive=name in mine)
+                reset_btn.connect("clicked", lambda _b, n=name: self.shortcut_set(n, None))
+                for b in (key_btn, off_btn, reset_btn):
+                    row.append(b)
+                box.append(row)
+        return box
+
+    def shortcut_start(self, name, button):
+        """Recording: the next press that is not a modifier alone becomes the keys. The window
+        asks Hyprland to pass every shortcut (SUPER+Q too) to it until the recording ends."""
+        self.shortcut_stop()
+        for error in self.shortcut_errors.values():  # an old refusal is about other keys
+            error.set_visible(False)
+        ctl = Gtk.EventControllerKey(propagation_phase=Gtk.PropagationPhase.CAPTURE)
+        ctl.connect("key-pressed", self.on_shortcut_key)
+        self.win.add_controller(ctl)
+        self.win.get_surface().inhibit_system_shortcuts(None)
+        self.recording = (name, button, button.get_label(), ctl)
+        button.set_label("Press the new keys… (Esc cancels)")
+
+    def shortcut_stop(self):
+        """End a recording and give the shortcuts back to Hyprland; nothing is saved."""
+        if self.recording is None:
+            return
+        _name, button, text, ctl = self.recording
+        self.recording = None
+        self.win.get_surface().restore_system_shortcuts()
+        self.win.remove_controller(ctl)
+        button.set_label(text)
+
+    def on_shortcut_key(self, ctl, keyval, keycode, state):
+        if keyval in MODIFIER_KEYS:
+            return True
+        mods = [name for name, mask in MOD_MASKS if state & mask]
+        if keyval == Gdk.KEY_Escape and not mods:  # KEYS-7
+            self.shortcut_stop()
+            return True
+        # the key without Shift on the first layout: GTK says "exclam" for SHIFT+1 and a
+        # Persian letter while that layout is on, Hyprland's binds use "1" and "Q"
+        found, plain, *_rest = self.win.get_display().translate_key(keycode, 0, 0)
+        name = self.recording[0]
+        self.shortcut_stop()
+        self.shortcut_record(name, mods, Gdk.keyval_name(plain if found else keyval))
+        return True
+
+    def shortcut_record(self, name, mods, keyname):
+        """KEYS-3: save the pressed keys for `name`, or say why not under its row."""
+        keys = shortcuts.keys_text(mods, keyname)
+        rows = self.shortcut_rows()
+        current = [(n, label_, k) for n, label_, _g, k, _d in rows]
+        why = shortcuts.conflict(keys, name, current, shortcuts.live_binds())
+        if why:
+            self.shortcut_errors[name].set_label(f"{keys}: {why}")
+            self.shortcut_errors[name].set_visible(True)
+            return
+        default = next(d for n, _l, _g, _k, d in rows if n == name)
+        self.shortcut_set(name, None if keys == default else keys)  # the default keys: no change to keep
+
+    def shortcut_set(self, name, keys):
+        """Save `keys` for `name`: "" is Off (KEYS-4), None takes the saved change away (KEYS-5)."""
+        self.shortcut_stop()
+        mine = dict(store.load()["shortcuts"])
+        if keys is None:
+            mine.pop(name, None)
+        else:
+            mine[name] = keys
+        self.save(shortcuts=mine)
+        if not self.error.get_visible():
+            self.rebuild("shortcuts")
+
+    def shortcut_reset_all(self):
+        """KEYS-5: every shortcut gets its default keys back."""
+        self.shortcut_stop()
+        self.save(shortcuts={})
+        if not self.error.get_visible():
+            self.rebuild("shortcuts")
+
     def look_page(self):
         box = self.page_box(
             "Look & behavior",
@@ -1023,6 +1490,74 @@ class Settings(Gtk.Application):
             )
         )
         box.append(self.switch_row("Animations", "Windows and desks slide and fade.", s, "animations"))
+        box.append(
+            self.switch_row(
+                "Bar background",
+                "A strip behind the bar's buttons. Off: they float on the wallpaper.",
+                s,
+                "bar_strip",
+            )
+        )
+        return box
+
+    # ----- night light (under the Displays panel) --------------------------------------
+    def night_light_section(self):
+        """NIGHT-6: warmer colors at night, on every screen. night_light.py runs
+        wlsunset from these settings; save() restarts its service (NIGHT-4)."""
+        s = store.load()
+        modes = [k for k, _n in NIGHT_MODE_NAMES]
+        times = sorted(set(NIGHT_TIMES) | {s["night_start"], s["night_end"]})  # a hand-set 20:15 stays
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.add_css_class("page")
+        box.append(label("NIGHT LIGHT", "section", xalign=0))
+
+        row, _text = self.row(
+            "Night light", "Warmer colors at night, on every screen. Follow sunset uses the calendar's home city."
+        )
+        mode = Gtk.DropDown.new_from_strings([n for _k, n in NIGHT_MODE_NAMES])
+        mode.set_valign(Gtk.Align.CENTER)
+        mode.set_selected(modes.index(s["night_mode"]))
+        row.append(mode)
+        box.append(row)
+
+        row, _text = self.row("Warmth", "Lower is warmer, in kelvin.")
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, *store.NIGHT_TEMPS, 100)
+        scale.set_value(s["night_temp"])
+        scale.set_draw_value(True)
+        scale.set_size_request(240, -1)
+        scale.set_valign(Gtk.Align.CENTER)
+        row.append(scale)
+        box.append(row)
+
+        sched, _text = self.row("From, to", "Schedule: the hours the screens are warm.")
+        start = Gtk.DropDown.new_from_strings(times)
+        end = Gtk.DropDown.new_from_strings(times)
+        for dd, key in ((start, "night_start"), (end, "night_end")):
+            dd.set_valign(Gtk.Align.CENTER)
+            dd.set_selected(times.index(s[key]))
+            dd.connect("notify::selected", lambda d, _p, key=key: self.save(**{key: times[d.get_selected()]}))
+            sched.append(dd)
+        sched.set_visible(s["night_mode"] == "schedule")
+        box.append(sched)
+
+        def on_mode(dd, _p):
+            sched.set_visible(modes[dd.get_selected()] == "schedule")
+            self.save(night_mode=modes[dd.get_selected()])
+
+        mode.connect("notify::selected", on_mode)
+        pending = {}  # the slider saves once it stops moving, not at every step
+
+        def save_temp():
+            pending.clear()
+            self.save(night_temp=int(round(scale.get_value() / 100) * 100))
+            return False
+
+        def on_temp(_scale):
+            if pending:
+                GLib.source_remove(pending.pop("id"))
+            pending["id"] = GLib.timeout_add(400, save_temp)
+
+        scale.connect("value-changed", on_temp)
         return box
 
     def row(self, title, desc):
@@ -1052,6 +1587,14 @@ class Settings(Gtk.Application):
             self.error.set_visible(True)
             return
         self.error.set_visible(False)
+        if "gif_bar" in changes:  # the pill, redrawn and signalled: no Hyprland reload
+            spawn([THEME_GIF_PY, "refresh"])
+        if "bar_gif" in changes:  # GIF-3: the player reads it at start
+            spawn(["systemctl", "--user", "restart", "bar-gif.service"])
+        if any(k.startswith("night_") for k in changes):  # NIGHT-4: the service reads them at start
+            spawn(["systemctl", "--user", "restart", "night-light.service"])
+        if "bar_strip" in changes:  # the bar colors file carries it: no Hyprland reload
+            spawn([THEME_PY, "bar"])
         if first:
             spawn(["hyprctl", "reload"])
 

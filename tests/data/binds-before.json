@@ -1,0 +1,688 @@
+[
+ {
+  "keys": "SUPER + Return",
+  "action": "hl.dsp.exec_cmd(kitty)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + E",
+  "action": "hl.dsp.exec_cmd(nemo)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + D",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/popup.sh launcher)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + B",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/popup.sh power-popup)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + C",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/popup.sh calculator)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + V",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/popup.sh clipboard)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + period",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/popup.sh emoji-picker)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + I",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/settings.py)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + M",
+  "action": "hl.dsp.exit()",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + R",
+  "action": "hl.dsp.exec_cmd(hyprctl reload && notify-send 'Hyprland reloaded')",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + Escape",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/popup.sh --unstick)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SPACE",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/switch-layout.sh)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "ALT + Shift_L",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/switch-layout.sh)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SHIFT + Alt_L",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/switch-layout.sh)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + Q",
+  "action": "hl.dsp.window.close()",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + F",
+  "action": "hl.dsp.window.fullscreen()",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + F",
+  "action": "hl.dsp.window.fullscreen({mode=maximized})",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + SPACE",
+  "action": "hl.dsp.window.float({action=toggle})",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + P",
+  "action": "hl.dsp.window.pseudo()",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + P",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/popup.sh displays)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + J",
+  "action": "hl.dsp.layout(togglesplit)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + G",
+  "action": "hl.dsp.group.toggle()",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + G",
+  "action": "hl.dsp.group.next()",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + Tab",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/popup.sh overview)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "ALT + Tab",
+  "action": "hl.dsp.focus({last=true})",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + H",
+  "action": "hl.dsp.exec_cmd(sh ~/.config/hypr/scripts/toggle-gaps.sh)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + A",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + minus",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + minus",
+  "action": "hl.dsp.exec_cmd(~/.config/waybar/scripts/popup.sh minimized-picker)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + left",
+  "action": "hl.dsp.window.move({direction=left})",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + right",
+  "action": "hl.dsp.window.move({direction=right})",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + up",
+  "action": "hl.dsp.window.move({direction=up})",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + down",
+  "action": "hl.dsp.window.move({direction=down})",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + left",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + right",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + mouse_down",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + mouse_up",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 1",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 1",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 1",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 2",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 2",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 2",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 3",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 3",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 3",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 4",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 4",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 4",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 5",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 5",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 5",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 6",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 6",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 6",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 7",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 7",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 7",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 8",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 8",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 8",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 9",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 9",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 9",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + 0",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + SHIFT + 0",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + CTRL + 0",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + mouse:272",
+  "action": "hl.dsp.window.drag()",
+  "opts": "{mouse=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + mouse:273",
+  "action": "hl.dsp.window.resize()",
+  "opts": "{mouse=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + R",
+  "action": "hl.dsp.submap(resize)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "right",
+  "action": "hl.dsp.window.resize({relative=true,x=15,y=0})",
+  "opts": "{repeating=true}",
+  "description": "",
+  "submap": "resize"
+ },
+ {
+  "keys": "left",
+  "action": "hl.dsp.window.resize({relative=true,x=-15,y=0})",
+  "opts": "{repeating=true}",
+  "description": "",
+  "submap": "resize"
+ },
+ {
+  "keys": "up",
+  "action": "hl.dsp.window.resize({relative=true,x=0,y=-15})",
+  "opts": "{repeating=true}",
+  "description": "",
+  "submap": "resize"
+ },
+ {
+  "keys": "down",
+  "action": "hl.dsp.window.resize({relative=true,x=0,y=15})",
+  "opts": "{repeating=true}",
+  "description": "",
+  "submap": "resize"
+ },
+ {
+  "keys": "escape",
+  "action": "hl.dsp.submap(reset)",
+  "opts": "{}",
+  "description": "",
+  "submap": "resize"
+ },
+ {
+  "keys": "XF86AudioRaiseVolume",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/volume.sh up)",
+  "opts": "{locked=true,repeating=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "XF86AudioLowerVolume",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/volume.sh down)",
+  "opts": "{locked=true,repeating=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "XF86AudioMute",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/volume.sh mute)",
+  "opts": "{locked=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "XF86AudioMicMute",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/volume.sh mic-mute)",
+  "opts": "{locked=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "XF86MonBrightnessUp",
+  "action": "hl.dsp.exec_cmd(brightnessctl set +10%)",
+  "opts": "{locked=true,repeating=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "XF86MonBrightnessDown",
+  "action": "hl.dsp.exec_cmd(brightnessctl set 10%-)",
+  "opts": "{locked=true,repeating=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "XF86AudioPlay",
+  "action": "hl.dsp.exec_cmd(playerctl play-pause)",
+  "opts": "{locked=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "XF86AudioNext",
+  "action": "hl.dsp.exec_cmd(playerctl next)",
+  "opts": "{locked=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "XF86AudioPrev",
+  "action": "hl.dsp.exec_cmd(playerctl previous)",
+  "opts": "{locked=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "Print",
+  "action": "hl.dsp.exec_cmd(grim -g \"$(slurp)\" - | wl-copy)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "CTRL + Print",
+  "action": "hl.dsp.exec_cmd(grim -g \"$(slurp)\" - | swappy -f -)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + up",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + down",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + Page_Up",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + Page_Down",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + right",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + left",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "ALT + down",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "ALT + up",
+  "action": "<function>",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + N",
+  "action": "hl.dsp.exec_cmd(swaync-client -t -sw)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "SUPER + L",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/lock.sh)",
+  "opts": "{}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "switch:on:Lid Switch",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/lid.sh close)",
+  "opts": "{locked=true}",
+  "description": "",
+  "submap": ""
+ },
+ {
+  "keys": "switch:off:Lid Switch",
+  "action": "hl.dsp.exec_cmd(~/.config/hypr/scripts/lid.sh open)",
+  "opts": "{locked=true}",
+  "description": "",
+  "submap": ""
+ }
+]

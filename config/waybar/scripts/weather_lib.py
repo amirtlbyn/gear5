@@ -114,22 +114,37 @@ def search(name, count=6):
 
 
 def get_home(default_zone):
-    """The city the calendar shows weather for; the given timezone if none was chosen."""
+    """The city the calendar shows weather for. In auto mode (the default, and
+    after set_home_auto()), that's the given timezone — pass the active pinned
+    zone to follow it. Otherwise it's the manually picked city from set_home()."""
     try:
         with open(HOME_FILE) as f:
             h = json.load(f)
-        if place(h["key"]):
+        if not h.get("auto", False) and place(h.get("key")):
             return h
     except (OSError, ValueError, KeyError, TypeError):
         pass
-    return {"key": default_zone, "name": default_zone.rsplit("/", 1)[-1].replace("_", " "), "sub": ""}
+    return {"key": default_zone, "name": default_zone.rsplit("/", 1)[-1].replace("_", " "),
+            "sub": "", "auto": True}
 
 
 def set_home(h):
+    """Manually pick a city. Turns auto mode off until set_home_auto()."""
     try:
         tmp = HOME_FILE + ".tmp"
         with open(tmp, "w") as f:
-            json.dump({"key": h["key"], "name": h["name"], "sub": h.get("sub", "")}, f)
+            json.dump({"key": h["key"], "name": h["name"], "sub": h.get("sub", ""), "auto": False}, f)
+        os.replace(tmp, HOME_FILE)
+    except OSError:
+        pass
+
+
+def set_home_auto():
+    """Switch back to auto mode: the calendar follows whichever zone is active."""
+    try:
+        tmp = HOME_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"auto": True}, f)
         os.replace(tmp, HOME_FILE)
     except OSError:
         pass

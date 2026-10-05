@@ -5,6 +5,7 @@ Display settings (SUPER+P), Everforest style.
   displays.py [THEME] [--hidden]
   displays.py --auto        put back the layout saved for the screens connected now
                             (Hyprland runs this whenever a screen comes or goes)
+  displays.py --auto --lid-opened   the same, with the laptop panel on (lid.sh open)
 
 - Quick modes: Laptop only · Extend · Duplicate · External only.
 - Drag the screens on the map to arrange them; they snap edge to edge.
@@ -19,9 +20,15 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+import threading
+import time
 
 PROFILES = os.path.join(os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")), "hypr",
                         "displays.json")
+# the layout last applied, as Lua: hyprland.lua loads it after its own monitor lines,
+# so a config reload (a theme switch) puts the screens straight where they are now
+LAYOUT_LUA = os.path.join(os.path.dirname(PROFILES), "displays-current.lua")
 LID_FLAG = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "hypr-lid-closed")
 INTERNAL = ("eDP", "LVDS", "DSI")
 
@@ -30,11 +37,20 @@ INTERNAL = ("eDP", "LVDS", "DSI")
 # screens: read, describe, apply (no GTK needed: --auto runs this part only)
 # ---------------------------------------------------------------------------
 def hyprctl_json(*args):
-    try:
-        return json.loads(subprocess.run(["hyprctl", "-j", *args], capture_output=True, text=True,
-                                         timeout=3).stdout or "[]")
-    except (OSError, ValueError, subprocess.TimeoutExpired):
-        return []
+    """hyprctl's answer as JSON, or [] when it can't be had. A busy moment on
+    Hyprland's socket (many readers at once) can fail one call with no output,
+    so it is tried twice: one dropped answer must not leave the page empty."""
+    for attempt in (1, 2):
+        try:
+            out = subprocess.run(["hyprctl", "-j", *args], capture_output=True, text=True,
+                                 timeout=5).stdout
+            if out.strip():
+                return json.loads(out)
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            pass
+        if attempt == 1:
+            time.sleep(0.2)
+    return []
 
 
 def mode_of(m):
@@ -114,17 +130,51 @@ def lua_rules(screens):
         if not on:
             lines.append(f'hl.monitor({{ output = {json.dumps(selector(s))}, disabled = true }})')
             continue
-        spec = (f'output = {json.dumps(selector(s))}, mode = "{s.mode}", position = "{int(s.x)}x{int(s.y)}", '
-                f'scale = {s.scale:g}, transform = {s.transform}')
+        # disabled = false: Hyprland merges the rules for one screen, so without it
+        # an earlier "disabled = true" keeps the screen off until the next login
+        spec = (f'output = {json.dumps(selector(s))}, disabled = false, mode = "{s.mode}", '
+                f'position = "{int(s.x)}x{int(s.y)}", scale = {s.scale:g}, transform = {s.transform}')
         if s.mirror:
             spec += f', mirror = "{s.mirror}"'
         lines.append(f"hl.monitor({{ {spec} }})")
     return "\n".join(lines)
 
 
+def write_layout(screens):
+    """Write the layout for hyprland.lua to load (only when its text changes).
+    hyprland.lua reads it with loadfile, so writing it does not reload Hyprland."""
+    text = "-- written by waybar/scripts/displays.py: the screen layout last applied\n" + lua_rules(screens) + "\n"
+    try:
+        with open(LAYOUT_LUA) as f:
+            if f.read() == text:
+                return
+    except OSError:
+        pass
+    try:
+        # the popup's apply() and Hyprland's --auto are two processes writing the
+        # same file: a unique tmp name, then one atomic replace, so no reader and
+        # no other writer ever sees half of it
+        folder = os.path.dirname(LAYOUT_LUA)
+        os.makedirs(folder, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=folder, prefix=".displays-current.")
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(text)
+            os.replace(tmp, LAYOUT_LUA)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+    except OSError:
+        pass
+
+
 def apply(screens):
+    write_layout(screens)
     try:
         subprocess.run(["hyprctl", "eval", lua_rules(screens)], capture_output=True, timeout=5)
+        # a screen turned upright/sideways changes which bar it gets
+        subprocess.Popen([os.path.join(os.path.dirname(os.path.abspath(__file__)), "bar_config.py"), "--refresh"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except (OSError, subprocess.TimeoutExpired):
         pass
 
@@ -145,13 +195,19 @@ def load_profiles():
 
 def save_profile(screens):
     profiles = load_profiles()
+    key = profile_key(screens)
     by_name = {s.name: s.ident for s in screens}
     entry = {}
     for s in screens:
         st = s.state()
+        if s.internal and lid_closed():
+            # the lid turned the panel off, not the user: keep what was saved before
+            saved = profiles.get(key)
+            saved = saved.get(s.ident) if isinstance(saved, dict) else None
+            st["enabled"] = saved.get("enabled", True) if isinstance(saved, dict) else True
         st["mirror"] = by_name.get(st["mirror"]) if st["mirror"] else None   # remember the screen, not the port
         entry[s.ident] = st
-    profiles[profile_key(screens)] = entry
+    profiles[key] = entry
     try:
         os.makedirs(os.path.dirname(PROFILES), exist_ok=True)
         with open(PROFILES + ".tmp", "w") as f:
@@ -177,7 +233,15 @@ def saved_layout(screens):
     return screens
 
 
-def auto():
+def turn_on(s, screens):
+    """Turn s on at its best mode, to the right of the other screens that are on."""
+    s.enabled, s.mode, s.mirror = True, s.modes[0], None
+    shown = [o for o in screens if o.enabled and o is not s and not o.mirror]
+    s.x = max((o.x + o.size()[0] for o in shown), default=0)
+    s.y = min((o.y for o in shown), default=0)
+
+
+def auto(lid_opened=False):
     screens = read_screens()
     if not screens:
         return
@@ -188,20 +252,27 @@ def auto():
         # another setup (e.g. "External only") can't leave you with a black laptop
         off = [s for s in screens if not s.enabled and not (s.internal and lid_closed())]
         if not off:
+            write_layout(screens)  # nothing to change: the next reload keeps the screens as they are
             return
         for s in off:
-            s.enabled, s.mode, s.mirror = True, s.modes[0], None
-            shown = [o for o in screens if o.enabled and o is not s and not o.mirror]
-            s.x = max((o.x + o.size()[0] for o in shown), default=0)
-            s.y = min((o.y for o in shown), default=0)
+            turn_on(s, screens)
         wanted = screens
+    elif lid_opened:
+        # opening the lid means "use the laptop": a saved "off" must not keep it
+        # black, and is saved as "on" so the next plug or unplug keeps it on
+        off = [s for s in wanted if s.internal and not s.enabled]
+        for s in off:
+            turn_on(s, wanted)
+        if off:
+            save_profile(wanted)
     if all(s.state() == now[s.name] or (s.internal and lid_closed()) for s in wanted):
-        return          # already like that: don't touch anything
+        write_layout(wanted)  # already like that: only make sure the next reload keeps it
+        return
     apply(wanted)
 
 
 if __name__ == "__main__" and "--auto" in sys.argv:
-    auto()
+    auto(lid_opened="--lid-opened" in sys.argv)
     sys.exit(0)
 
 
@@ -236,6 +307,8 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import brightness  # noqa: E402
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -288,6 +361,16 @@ popover listview > row:selected, popover listview > row:hover { background: @bg3
 switch { background: @bg3; border: none; }
 switch:checked { background: @green; }
 switch slider { background: @fg; border: none; box-shadow: none; }
+.popup scale { padding: 0 4px; }
+.popup scale trough { min-height: 8px; border-radius: 8px; border: none; background: alpha(@fg, 0.14); }
+.popup scale highlight {
+  border-radius: 8px; border: none; margin: 0; min-height: 8px; min-width: 0;
+  background-image: linear-gradient(90deg, @yellow, @green);
+}
+.popup scale slider {
+  min-width: 16px; min-height: 16px; margin: -5px 0;
+  border-radius: 50%; border: none; background: @fg; box-shadow: 0 1px 4px alpha(black, 0.45);
+}
 button.act {
   background: @bg2; color: @fg; border: none; border-radius: 14px; border-bottom: 3px solid @edge;
   box-shadow: none; padding: 8px 18px; min-height: 0;
@@ -299,9 +382,9 @@ button.act:disabled { opacity: 0.4; }
 .confirm .count { color: @yellow; }
 .note { color: @grey; font-weight: normal; font-size: 11px; margin: 8px 4px 0 4px; }
 """
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE)
 
-I_LAPTOP, I_EXTEND, I_MIRROR, I_MONITOR = "\U000f0322", "\U000f0e27", "\U000f0e2b", "\U000f0379"
+I_LAPTOP, I_EXTEND, I_MIRROR, I_MONITOR = "\U000f0322", "\U000f084e", "\U000f10e7", "\U000f0379"
 
 
 def hexcolor(name, alpha=1.0):
@@ -420,6 +503,9 @@ class DisplaysPanel:
         self.countdown = 0
         self.sel = None
         self.drag = None
+        self.bright = []            # every screen's brightness, read in the background
+        self.bright_reading = False
+        self.updating = False       # a slider value we set ourselves is not a user move
         self.build()
 
     def on_show(self):
@@ -436,9 +522,33 @@ class DisplaysPanel:
             focused = next((m["name"] for m in hyprctl_json("monitors") if m.get("focused")), None)
             self.sel = focused or (self.screens[0].name if self.screens else None)
         self.refresh()
+        self.read_brightness()
 
     def screen(self, name):
         return next((s for s in self.screens if s.name == name), None)
+
+    def read_brightness(self):
+        """BRT-1: the same read the quick settings card uses. ddcutil can be
+        slow, so it runs in the background and lands on the row when done."""
+        if self.bright_reading:
+            return
+        self.bright_reading = True
+
+        def read():
+            levels = brightness.read_screens()
+            GLib.idle_add(lambda: self.got_brightness(levels))
+        threading.Thread(target=read, daemon=True).start()
+
+    def got_brightness(self, levels):
+        self.bright_reading = False
+        self.bright = levels or []
+        self.refresh()
+        return False
+
+    def bright_screen(self, s):
+        """The selected screen's entry in the shared read, matched by its
+        hyprland output name (a disabled screen has none)."""
+        return next((b for b in self.bright if b.get("output") == s.name), None)
 
     # ----- UI --------------------------------------------------------------------
     def build(self):
@@ -494,9 +604,17 @@ class DisplaysPanel:
         self.dd_scale = dropdown([], self.pick_scale)
         self.dd_rot = dropdown([r for _t, r in ROTATIONS], self.pick_rotation)
         self.dd_mirror = dropdown([], self.pick_mirror)
+        self.bright_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 1, 100, 1)
+        self.bright_scale.set_hexpand(True)
+        self.bright_scale.set_draw_value(False)
+        self.bright_scale.connect("value-changed", self.on_bright)
+        self.bright_pct = label(css="row", xalign=1)
+        bright_row = Gtk.Box(spacing=8)
+        bright_row.append(self.bright_scale)
+        bright_row.append(self.bright_pct)
         for i, (name, w) in enumerate((("On", self.sw_on), ("Resolution", self.dd_mode),
                                        ("Scale", self.dd_scale), ("Rotation", self.dd_rot),
-                                       ("Mirror", self.dd_mirror))):
+                                       ("Mirror", self.dd_mirror), ("Brightness", bright_row))):
             grid.attach(label(name, "row", xalign=0), 0, i, 1, 1)
             w.set_hexpand(True)
             grid.attach(w, 1, i, 1, 1)
@@ -579,6 +697,15 @@ class DisplaysPanel:
             for w in (self.dd_mode, self.dd_scale, self.dd_rot, self.dd_mirror):
                 w.set_sensitive(s.enabled)
             self.dd_mirror.set_sensitive(s.enabled and bool(others))
+            sc = self.bright_screen(s)
+            self.updating = True
+            self.bright_scale.set_sensitive(s.enabled and sc is not None)
+            self.bright_pct.set_visible(sc is not None)
+            if sc is not None:
+                self.bright_scale.set_range(10 if sc["how"] == "dimmed" else 1, 100)
+                self.bright_scale.set_value(sc["value"])
+                self.bright_pct.set_label(f"{sc['value']}%")
+            self.updating = False
 
         notes = []
         if lid_closed() and has_laptop:
@@ -663,6 +790,19 @@ class DisplaysPanel:
             else:
                 self.edited()
 
+    def on_bright(self, scale):
+        # BRT-2: this screen only, through the same write the quick settings
+        # card uses
+        if self.updating:
+            return
+        s = self.screen(self.sel)
+        sc = self.bright_screen(s) if s else None
+        if sc is None:
+            return
+        value = int(scale.get_value())
+        self.bright_pct.set_label(f"{value}%")
+        brightness.set(sc, value)
+
     def reflow(self, s):
         """s changed size: slide it (and keep it from overlapping) next to the others."""
         others = [o for o in self.screens if o is not s and o.enabled and not o.mirror]
@@ -726,7 +866,7 @@ class DisplaysPanel:
             copies = [o.label for o in self.screens if o.mirror == s.name and o.enabled]
             text = f"{s.label}\n{s.mode.split('@')[0]}" + (f"\n+ {', '.join(copies)}" if copies else "")
             layout = PangoCairo.create_layout(cr)
-            layout.set_font_description(Pango.FontDescription.from_string("JetBrainsMono Nerd Font Bold 9"))
+            layout.set_font_description(Pango.FontDescription.from_string(fonts.pango("JetBrainsMono Nerd Font Bold 9")))
             layout.set_alignment(Pango.Alignment.CENTER)
             layout.set_width(int(max(10, rw - 8) * Pango.SCALE))
             layout.set_ellipsize(Pango.EllipsizeMode.END)

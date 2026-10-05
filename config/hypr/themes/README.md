@@ -37,3 +37,10 @@ from it. The names are roles, not hues: in a pink theme, `green` can be pink.
 One picture for every theme: `~/.config/hypr/wallpapers/wallpaper.png` (or `.jpg`,
 `.jpeg`, `.webp`), set from Settings → Wallpaper. With no file, the desktop is filled
 with the current theme's `bg0` color.
+
+## GIF
+
+A theme can have a GIF: `~/.config/hypr/themes/<theme id>.gif`, set from Settings →
+Theme (GIF… on a card). It must be a GIF of 8 MB or less. It plays on the bar and on the lock
+screen, and pops up under the bar for about two seconds when the theme changes. A
+theme with no GIF shows no picture on the lock screen. The GIFs are never in git.

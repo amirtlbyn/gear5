@@ -39,6 +39,17 @@ def test_switch_must_be_on_or_off(tmp_path, xkb):
         store.save(dict(store.DEFAULTS, gaps="no"), str(tmp_path), xkb)
 
 
+def test_font_names_are_kept_and_bad_ones_refused(tmp_path, xkb):
+    """Given a font choice, when it is saved, then it reads back; a name
+    that is empty, endless, or carries CSS/Lua punctuation is refused."""
+    s = store.save(dict(store.DEFAULTS, font_en="FiraCode Nerd Font", font_fa="Vazir"), str(tmp_path), xkb)
+    assert s["font_en"] == "FiraCode Nerd Font" and s["font_fa"] == "Vazir"
+    assert store.load(str(tmp_path))["font_fa"] == "Vazir"
+    for bad in ("", "   ", 'x"; }', "x" * 61, "{a}", "a;b"):
+        with pytest.raises(ValueError):
+            store.save(dict(store.DEFAULTS, font_fa=bad), str(tmp_path), xkb)
+
+
 def test_broken_or_foreign_saved_values_fall_back_to_defaults(tmp_path):
     (tmp_path / "hypr").mkdir()
     (tmp_path / "hypr" / "user-settings.json").write_text(
@@ -48,3 +59,34 @@ def test_broken_or_foreign_saved_values_fall_back_to_defaults(tmp_path):
     assert s["gaps"] is True and s["animations"] is False and "x" not in s
     (tmp_path / "hypr" / "user-settings.json").write_text("{ broken")
     assert store.load(str(tmp_path)) == store.DEFAULTS
+
+
+def test_a_hand_edited_font_name_falls_back_to_the_default(tmp_path):
+    """A font name the Fonts page would never offer (hand-edited into the json)
+    never reaches the generated CSS: the default fills in on load."""
+    (tmp_path / "hypr").mkdir()
+    (tmp_path / "hypr" / "user-settings.json").write_text(
+        json.dumps({"font_en": 'x"; } body { display:none', "font_fa": "Vazir"})
+    )
+    s = store.load(str(tmp_path))
+    assert s["font_en"] == store.DEFAULTS["font_en"] and s["font_fa"] == "Vazir"
+
+
+def test_old_sticker_keys_are_read_as_gif_keys_and_moments_is_dropped(tmp_path, xkb):
+    """GIFT-2: given a settings file with sticker_bar, sticker_switch and moments,
+    when it is loaded, then the two values are gif_bar and gif_switch and there is
+    no moments; and after a save the file has the new names only."""
+    hypr = tmp_path / "hypr"
+    hypr.mkdir()
+    (hypr / "user-settings.json").write_text(
+        json.dumps(dict(sticker_bar=False, sticker_switch=False, moments={"zoro": {"glyph": "star"}}))
+    )
+
+    loaded = store.load(str(tmp_path))
+    assert loaded["gif_bar"] is False and loaded["gif_switch"] is False
+    assert "moments" not in loaded
+
+    store.save(loaded, str(tmp_path), xkb)
+    saved = json.loads((hypr / "user-settings.json").read_text())
+    assert saved["gif_bar"] is False and saved["gif_switch"] is False
+    assert not {"sticker_bar", "sticker_switch", "moments"} & saved.keys()

@@ -31,11 +31,16 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
+import power_mode  # noqa: E402
 
 import popup_backdrop  # noqa: E402
 
 IDLE = os.path.expanduser("~/.config/hypr/scripts/idle.sh")
+WIDTH = 360
+BAR_HEIGHT = 70  # the mouse this close to the top of the screen is on the bar
+BAR_LEFT = 120  # where the bar starts (bar/config's margin-left)
 # imported by Settings (panel.py): no window, the theme in use
 THEME = sys.argv[1] if __name__ == "__main__" and len(sys.argv) > 1 else palette.current()
 ALIASES = dict(edge="edge_deep")
@@ -79,7 +84,7 @@ button.act {
 button.act:hover { background: shade(@bg3, 1.1); }
 button.act.danger { background: @red; color: @bg0; border-bottom-color: @red_edge; }
 """
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE)
 
 MODES = [
     ("sleep", "\U000f04b2", "Sleep", "Lock, then sleep once nothing is running"),
@@ -94,11 +99,14 @@ def idle(*args):
 
 
 class PowerPanel:
-    """What happens when you're away, after how long, and lock / sleep / power off.
-    Shown by the popup below and by Settings (see panel.py for the host)."""
+    """What happens when you're away, after how long, and lock / sleep / reboot /
+    power off. Shown by the popup below and by Settings (see panel.py for the host).
+    In Settings it also starts with the power mode row (BATT-2): the battery card
+    that carried the mode moved to the Battery page."""
 
     def __init__(self, host):
         self.host = host
+        self.profile = None
         self.read()
         self.build()
 
@@ -106,6 +114,8 @@ class PowerPanel:
         mode, _, mins = (idle("get") or "sleep 5").partition(" ")
         self.mode = mode or "sleep"
         self.mins = int(mins) if mins.isdigit() else 5
+        if self.host.embedded:
+            self.profile = power_mode.read()
 
     def on_show(self):
         # the mode may have changed elsewhere (quick settings' Stay awake)
@@ -118,11 +128,28 @@ class PowerPanel:
     def build(self):
         popup = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         popup.add_css_class("popup")
-        popup.set_size_request(360, -1)
+        popup.set_size_request(WIDTH, -1)
 
         title = Gtk.Label(label="\U000f0425  Power", xalign=0)
         title.add_css_class("title")
         popup.append(title)
+
+        # Settings only: the popup keeps nothing of this (its own quick settings
+        # card has the mode)
+        self.profile_sec = self.profile_row = None
+        self.profile_btns = {}
+        if self.host.embedded:
+            self.profile_sec = Gtk.Label(label="POWER MODE", xalign=0)
+            self.profile_sec.add_css_class("section")
+            popup.append(self.profile_sec)
+            self.profile_row = Gtk.Box(spacing=6, homogeneous=True)
+            for key, text_ in power_mode.PROFILES:
+                b = Gtk.Button(label=text_)
+                b.add_css_class("chip")
+                b.connect("clicked", lambda _b, k=key: self.choose_profile(k))
+                self.profile_row.append(b)
+                self.profile_btns[key] = b
+            popup.append(self.profile_row)
 
         sec = Gtk.Label(label="WHEN I'M AWAY", xalign=0)
         sec.add_css_class("section")
@@ -165,8 +192,9 @@ class PowerPanel:
         popup.append(sec3)
         acts = Gtk.Box(spacing=6, homogeneous=True)
         for label, cmd, danger in (
-            ("\U000f033e  Lock", "pidof hyprlock || (hyprctl switchxkblayout all 0; hyprlock)", False),
+            ("\U000f033e  Lock", "~/.config/hypr/scripts/lock.sh", False),
             ("\U000f04b2  Sleep", "systemctl suspend", False),
+            ("\U000f070a  Reboot", "systemctl reboot", True),
             ("\U000f0425  Power off", "systemctl poweroff", True),
         ):
             b = Gtk.Button(label=label)
@@ -186,6 +214,19 @@ class PowerPanel:
         for m, b in self.chip_buttons.items():
             (b.add_css_class if m == self.mins else b.remove_css_class)("on")
             b.set_sensitive(self.mode != "awake")
+        if self.profile_row is not None:
+            # without power-profiles-daemon there is no mode to choose
+            self.profile_sec.set_visible(self.profile is not None)
+            self.profile_row.set_visible(self.profile is not None)
+            for key, b in self.profile_btns.items():
+                (b.add_css_class if key == self.profile else b.remove_css_class)("on")
+
+    def choose_profile(self, key):
+        # sync: busctl answers in milliseconds, and the row keeps its state
+        # itself (there is no one to report an error to here)
+        self.profile = key
+        self.update()
+        power_mode.set_profile(key)
 
     def choose(self, mode=None, mins=None):
         if mode:
@@ -200,6 +241,18 @@ class PowerPanel:
         subprocess.Popen(["sh", "-c", f"sleep 0.3; {cmd}"], start_new_session=True)
 
 
+def left_margin(cursor, width):
+    """POWERPOS: the popup's left margin. Centered under the mouse when it is on
+    the bar (a click on the away-timer pill), kept inside the screen; else, as
+    for SUPER+B or an unknown mouse position, on the left where the bar starts."""
+    if cursor is None:
+        return BAR_LEFT
+    x, y, screen_w = cursor
+    if y > BAR_HEIGHT:
+        return BAR_LEFT
+    return max(0, min(int(x - width / 2), int(screen_w) - width))
+
+
 class Power(Gtk.Application):
     """The popup: the panel in a layer-shell window under the bar."""
 
@@ -209,6 +262,7 @@ class Power(Gtk.Application):
         super().__init__(application_id="io.local.powerpopup")
         self.win = None
         self.panel = None
+        self.popup_box = None  # the panel, placed on each open (layer shell only)
 
     # ----- host (see panel.py) ---------------------------------------------------
     def close(self):
@@ -234,7 +288,17 @@ class Power(Gtk.Application):
 
     def show_popup(self):
         self.panel.on_show()
+        self.place()
         self.win.present()
+
+    def place(self):
+        if self.popup_box is None:  # no layer shell: a plain window, nothing to place
+            return
+        # measure(), not get_width(): before the first open the box has no size yet.
+        # measure() counts the margins too, so drop the last open's margin first
+        self.popup_box.set_margin_start(0)
+        width = self.popup_box.measure(Gtk.Orientation.HORIZONTAL, -1)[1] or WIDTH
+        self.popup_box.set_margin_start(left_margin(popup_backdrop.cursor_on_screen(), width))
 
     def on_close(self, win):
         self.closed_at = GLib.get_monotonic_time()
@@ -277,10 +341,10 @@ class Power(Gtk.Application):
             click = Gtk.GestureClick()
             click.connect("pressed", lambda *_: win.close())
             backdrop.add_controller(click)
-            popup.set_halign(Gtk.Align.END)
+            popup.set_halign(Gtk.Align.START)  # left margin: place(), on each open
             popup.set_valign(Gtk.Align.START)
             popup.set_margin_top(72)
-            popup.set_margin_end(420)
+            self.popup_box = popup
             overlay = Gtk.Overlay()
             overlay.set_child(backdrop)
             overlay.add_overlay(popup)

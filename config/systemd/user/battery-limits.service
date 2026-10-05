@@ -1,0 +1,10 @@
+[Unit]
+Description=Battery charge limits (Settings' Battery page)
+PartOf=hyprland-session.target
+
+[Service]
+ExecStart=%h/.config/waybar/scripts/battery.py --serve
+Restart=on-failure
+
+[Install]
+WantedBy=hyprland-session.target

@@ -58,6 +58,7 @@ try:
 except (ValueError, ImportError):
     LS = None
 
+import fonts  # noqa: E402
 import palette  # noqa: E402
 
 import popup_backdrop  # noqa: E402
@@ -212,7 +213,7 @@ popover listview > row:selected, popover listview > row:hover { background: @bg3
 .media.{key} button.play:hover {{ background: shade({color}, 1.1); }}
 .media.{key} scale highlight {{ background-image: none; background: {color}; }}
 """ for key, (_label, _icon, color) in BRANDS.items())
-CSS = "".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE
+CSS = fonts.swap("".join(f"@define-color {k} {v};\n" for k, v in P.items()) + STYLE)
 
 # icons (JetBrainsMono Nerd Font)
 I_SPK_MUTE, I_SPK_LOW, I_SPK_MID, I_SPK_HIGH = "\U000f075f", "\U000f057f", "\U000f0580", "\U000f057e"

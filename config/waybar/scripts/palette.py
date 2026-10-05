@@ -24,8 +24,8 @@ SINGLE_MARK = ".single"  # in WALLPAPERS: the one wallpaper was set or removed a
 
 def read(theme_id, themes=THEMES):
     """The theme file as a dict, or None if it's missing or broken."""
-    if not isinstance(theme_id, str) or not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", theme_id):
-        return None  # ids are plain names: they end up in file paths and shell commands
+    if not read_id_ok(theme_id):
+        return None
     try:
         with open(os.path.join(themes, theme_id + ".json")) as f:
             data = json.load(f)
@@ -114,11 +114,22 @@ def wallpaper(wallpapers=WALLPAPERS, themes=THEMES):
 
 
 def set_wallpaper(source, wallpapers=WALLPAPERS):
-    """Copy source in as the one wallpaper (None removes it). The copy happens
-    before any old file is removed, so a failed copy leaves the old wallpaper
-    in place, and only one `wallpaper.<ext>` ever exists at once."""
-    os.makedirs(wallpapers, exist_ok=True)
-    new = os.path.join(wallpapers, "wallpaper" + os.path.splitext(source)[1].lower()) if source else None
+    """Copy source in as the one wallpaper (None removes it); see _install."""
+    _install(source, wallpapers, "wallpaper",
+             after_copy=lambda: open(os.path.join(wallpapers, SINGLE_MARK), "w").close())
+
+
+def read_id_ok(theme_id):
+    """A theme id is a plain name: it ends up in file paths and shell commands."""
+    return isinstance(theme_id, str) and re.fullmatch(r"[a-z0-9][a-z0-9_-]*", theme_id) is not None
+
+
+def _install(source, folder, stem, after_copy=None):
+    """Copy source in as folder/stem.<ext> (None removes it). The copy is done
+    before any old file is removed, so a failed copy leaves the old picture in
+    place, and only one `stem.<ext>` ever exists at once."""
+    os.makedirs(folder, exist_ok=True)
+    new = os.path.join(folder, stem + os.path.splitext(source)[1].lower()) if source else None
     if new:
         try:
             shutil.copyfile(source, new + ".part")
@@ -126,9 +137,10 @@ def set_wallpaper(source, wallpapers=WALLPAPERS):
             if os.path.exists(new + ".part"):
                 os.remove(new + ".part")
             raise
-    open(os.path.join(wallpapers, SINGLE_MARK), "w").close()
+    if after_copy:
+        after_copy()
     for ext in WALLPAPER_EXTS:
-        old = os.path.join(wallpapers, "wallpaper" + ext)
+        old = os.path.join(folder, stem + ext)
         if old != new and os.path.exists(old):
             os.remove(old)
     if new:

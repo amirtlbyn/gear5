@@ -5,7 +5,8 @@ A popup is a full-screen layer on the screen you opened it on, so a click on ano
 screen used to go straight to the window there and leave the popup open. While a
 popup is shown, this puts a transparent click-catcher on every other screen too.
 
-It also turns off font hinting (see smooth_text), and gives each popup a "close-popup" action and marks it as open in
+It also plays the popup's entry motion (see animate_in), turns off font hinting (see
+smooth_text), and gives each popup a "close-popup" action and marks it as open in
 $XDG_RUNTIME_DIR/popups, so `popup.sh --close-all` can close whatever is open (used
 when you switch desks, open a window, or open another popup).
 
@@ -25,6 +26,39 @@ except ImportError:
 
 MARKS = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "popups")
 CSS = "window.popup-catcher { background: alpha(black, 0.12); }"
+
+# The entry motion (roadmap 4.1). A popup is hidden and shown again, never made
+# again, and GTK plays a CSS animation on it again only when the animation's name
+# changes: so each kind has two identical keyframes, and every open takes the other.
+MOTION_MS = 120
+BAR_REACH = 80   # a box aligned to the top this close to it hangs from the bar
+MOTION = {
+    "slide": "opacity: 0; transform: translateY(-8px);",   # from the bar
+    "scale": "opacity: 0; transform: scale(0.97);",        # centered popups
+}
+MOTION_CSS = "".join(
+    f"@keyframes popup-{kind}-{n} {{ from {{ {start} }} to {{ opacity: 1; transform: none; }} }}\n"
+    f".popup.motion-{kind}-{n} {{ animation: popup-{kind}-{n} {MOTION_MS}ms ease-out; }}\n"
+    for kind, start in MOTION.items()
+    for n in "ab"
+)
+MOTION_CLASSES = [f"motion-{kind}-{n}" for kind in MOTION for n in "ab"]
+
+
+def cursor_on_screen():
+    """(x, y, screen width) of the mouse on the focused screen, in logical pixels,
+    or None when Hyprland can't tell. A popup opened by a click on the bar uses
+    it to open under that click."""
+    try:
+        pos = json.loads(subprocess.run(["hyprctl", "-j", "cursorpos"], capture_output=True,
+                                        text=True, timeout=2, check=False).stdout)
+        mons = json.loads(subprocess.run(["hyprctl", "-j", "monitors"], capture_output=True,
+                                         text=True, timeout=2, check=False).stdout)
+        mon = next(m for m in mons if m.get("focused"))
+        width = (mon["height"] if mon.get("transform", 0) % 2 else mon["width"]) / mon["scale"]
+        return pos["x"] - mon["x"], pos["y"] - mon["y"], width
+    except (OSError, ValueError, KeyError, StopIteration, subprocess.TimeoutExpired):
+        return None
 
 
 def focused_output():
@@ -47,13 +81,14 @@ class Catchers:
             action.connect("activate", lambda *_: win.get_visible() and win.close())
             app.add_action(action)
         prov = Gtk.CssProvider()
-        prov.load_from_string(CSS)
+        prov.load_from_string(CSS + MOTION_CSS)
         Gtk.StyleContext.add_provider_for_display(win.get_display(), prov,
                                                   Gtk.STYLE_PROVIDER_PRIORITY_USER)
         win.connect("notify::visible", self.on_visible)
 
     def on_visible(self, win, _pspec):
         if win.get_visible():
+            animate_in(outermost_popup(win))
             self.show()
         else:
             self.hide()
@@ -110,6 +145,57 @@ class Catchers:
         return c
 
 
+def outermost_popup(win):
+    """The window's first `.popup` box, breadth first: control-center's panels
+    are `.popup` boxes too, inside its own, and only the outer one moves."""
+    queue = [win.get_child()]
+    while queue:
+        widget = queue.pop(0)
+        if widget is None:
+            continue
+        if widget.has_css_class("popup"):
+            return widget
+        child = widget.get_first_child()
+        while child is not None:
+            queue.append(child)
+            child = child.get_next_sibling()
+    return None
+
+
+def motion_kind(box):
+    """"slide" for a box that hangs from the bar, "scale" for the others."""
+    if box.get_valign() == Gtk.Align.START and box.get_margin_top() <= BAR_REACH:
+        return "slide"
+    return "scale"
+
+
+def animate_in(box):
+    """Give the box the other entry-animation class than last time, so GTK plays
+    the motion on this open too."""
+    if box is None:
+        return
+    last = next((c for c in MOTION_CLASSES if box.has_css_class(c)), None)
+    for c in MOTION_CLASSES:
+        box.remove_css_class(c)
+    n = "b" if last is not None and last.endswith("-a") else "a"
+    box.add_css_class(f"motion-{motion_kind(box)}-{n}")
+
+
+def motion_setting():
+    """Settings > Look & behavior > Animations off: GTK plays no CSS animation.
+    Turning it on or off restarts the popups (Hyprland reloads), so reading it
+    once at start is enough."""
+    s = Gtk.Settings.get_default()
+    if s is None:
+        return
+    try:
+        import settings_store
+
+        s.props.gtk_enable_animations = settings_store.load()["animations"]
+    except (ImportError, OSError, KeyError):
+        pass
+
+
 def smooth_text():
     """No font hinting in the popups: on scale-1 screens hinting snaps the tops of
     round letters to the pixel grid, so B, C, O ... look cut flat."""
@@ -126,5 +212,6 @@ def smooth_text():
 
 def attach(win):
     smooth_text()
+    motion_setting()
     win._catchers = Catchers(win)
     return win._catchers

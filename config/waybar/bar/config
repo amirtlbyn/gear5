@@ -1,4 +1,4 @@
-// One bar on every screen. For a compact bar on a vertical screen, see the README.
+// One bar on every screen; vertical screens get a workspaces-only bar (scripts/bar_config.py).
 [
   {
     "margin-top": 0,
@@ -10,9 +10,9 @@
     "position": "top",
     "spacing": 15,
     "reload_style_on_change": true,
-    "modules-left": ["custom/launcher", "custom/clock", "custom/dates"],
-    "modules-center": ["group/desks"],
-    "modules-right": ["custom/minimized", "custom/idle", "custom/lang", "pulseaudio", "network", "battery", "custom/powermenu"],
+    "modules-left": ["custom/launcher", "custom/clock", "custom/idle"],
+    "modules-center": ["image#character", "group/desks"],
+    "modules-right": ["custom/minimized", "custom/lang", "pulseaudio", "network", "battery", "custom/powermenu"],
     "include": ["~/.config/waybar/bar/modules.jsonc"]
   }
 ]
